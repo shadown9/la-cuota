@@ -523,8 +523,14 @@ function shareSheet(){
 /* ---------- VISTA SOLO LECTURA ---------- */
 function showReadonly(payload){
   var snap=L.decodeSnapshot(payload);
-  if(!snap){ renderHome(); toast('Ese enlace ya no es válido.'); return; }
   show('v-readonly');
+  if(!snap){
+    $('roName').textContent='Enlace no válido';
+    $('roMonth').textContent='Pide al tesorero que te comparta el enlace de nuevo.';
+    $('roCollected').textContent='—'; $('roMissing').textContent='—';
+    $('roPaid').innerHTML=''; $('roOwed').innerHTML='';
+    return;
+  }
   var g=snap.g, mk=snap.month;
   $('roName').textContent=g.name;
   $('roMonth').textContent=L.periodLabel(mk, g);
@@ -642,7 +648,7 @@ $('setDelete').addEventListener('click', function(){
 $('payMonthly').addEventListener('click', function(){ paySoon('monthly'); });
 $('payYearly').addEventListener('click', function(){ paySoon('yearly'); });
 $('payViewData').addEventListener('click', renderHome);
-$('roCta').addEventListener('click', function(){ location.hash=''; renderHome(); });
+$('roCta').addEventListener('click', function(){ location.hash=''; locked()?renderPay():startOnboarding(); });
 
 /* ---------- arranque ---------- */
 function route(){
