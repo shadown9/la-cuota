@@ -644,7 +644,7 @@ function payCheck(email){
 function pagoOk(){
   var plan = (S.pendingPlan==='yearly') ? 'yearly' : 'monthly';
   S.pendingPlan = null; save();
-  location.hash='';
+  setHash('');
   $('pagoOkForm').hidden = false;
   $('pagoOkDone').hidden = true;
   $('pagoOkErr').hidden = true;
@@ -726,7 +726,7 @@ function showLegal(which){
   show('v-legal');
 }
 $('legalBack').addEventListener('click', function(){
-  if(history.length>1){ history.back(); } else { location.hash=''; renderHome(); }
+  if(history.length>1){ history.back(); } else { setHash(''); renderHome(); }
 });
 
 /* ---------- COMPARTIR ---------- */
@@ -926,7 +926,7 @@ $('payViewData').addEventListener('click', renderHome);
 $('payManageSub').addEventListener('click', manageSub);
 $('pagoOkManage').addEventListener('click', manageSub);
 $('btnManageSub').addEventListener('click', manageSub);
-$('roCta').addEventListener('click', function(){ location.hash=''; locked()?renderPay():startOnboarding(); });
+$('roCta').addEventListener('click', function(){ setHash(''); locked()?renderPay():startOnboarding(); });
 
 /* Trae un grupo de la nube al teléfono (también sirve para recuperar
    un grupo después de borrar los datos del navegador) */
@@ -958,7 +958,7 @@ function recoverSheet(){
     if(!nubeLista()){ toast('Sin conexión. Revisa tu internet.'); return; }
     closeSheet(); toast('Buscando el grupo…');
     fetchGroupToLocal(gid, function(ok){
-      if(ok){ toast('Grupo recuperado. 🎉'); location.hash=''; renderHome(); }
+      if(ok){ toast('Grupo recuperado. 🎉'); setHash(''); renderHome(); }
       else toast('No encontramos ese grupo. Revisa el enlace.');
     });
   });
@@ -967,6 +967,16 @@ $('obRecover').addEventListener('click', recoverSheet);
 $('btnRecoverHome').addEventListener('click', recoverSheet);
 
 /* ---------- arranque ---------- */
+/* Los enlaces internos (#/terminos, #/privacidad) cambian el hash sin recargar.
+   Este oyente hace que la app reaccione a esos cambios. setHash() se usa para
+   los cambios programáticos donde la vista ya se maneja a mano, para que el
+   oyente no la pise (ej. el formulario de confirmación de pago). */
+var ignoreHash = false;
+function setHash(h){ ignoreHash = true; location.hash = h; }
+window.addEventListener('hashchange', function(){
+  if(ignoreHash){ ignoreHash = false; return; }
+  route();
+});
 function route(){
   var h=location.hash||'';
   if(h.indexOf('#/pago-ok')===0){ pagoOk(); return; }
@@ -980,7 +990,7 @@ function route(){
       toast('Buscando el grupo…');
       CuotaNube.obtener(gid).then(function(remote){
         if(remote && remote.migratedTo){
-          location.hash='#/g/'+remote.migratedTo; route(); return;
+          setHash('#/g/'+remote.migratedTo); route(); return;
         }
         if(remote && remote.meta){
           L.applySnapshot(S, gid, remote); S.onboarded=true;
@@ -1006,7 +1016,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 32;
+var APP_V = 33;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
