@@ -9,14 +9,35 @@ function eq(a, b, name){
 function t(cond, name){ if (cond) ok++; else { bad++; console.log('FALLA:', name); } }
 
 /* --- períodos --- */
-eq(L.periodKey(new Date(2026, 8, 20), 5), '2026-09', 'periodKey sep, corte 5');
-eq(L.periodKey(new Date(2026, 8, 3), 5), '2026-08', 'periodKey antes del corte');
-eq(L.periodKey(new Date(2026, 8, 5), 5), '2026-09', 'periodKey día exacto del corte');
-eq(L.periodKey(new Date(2026, 0, 2), 5), '2025-12', 'periodKey cruza año');
-eq(L.prevPeriod('2026-09'), '2026-08', 'prevPeriod');
-eq(L.prevPeriod('2026-01'), '2025-12', 'prevPeriod año');
-eq(L.nextPeriod('2026-12'), '2027-01', 'nextPeriod año');
-eq(L.periodLabel('2026-09'), 'septiembre de 2026', 'periodLabel');
+var gm={freq:'mes',cutDay:5}, gs={freq:'semana',cutWeekday:0}, gd={freq:'dia'};
+eq(L.freqOf({}), 'mes', 'freqOf por defecto es mes');
+eq(L.freqOf({freq:'semana'}), 'semana', 'freqOf respeta grupo');
+eq(L.periodKey(new Date(2026, 8, 20), gm), '2026-09', 'mensual sep, corte 5');
+eq(L.periodKey(new Date(2026, 8, 3), gm), '2026-08', 'mensual antes del corte');
+eq(L.periodKey(new Date(2026, 8, 5), gm), '2026-09', 'mensual día exacto del corte');
+eq(L.periodKey(new Date(2026, 0, 2), gm), '2025-12', 'mensual cruza año');
+eq(L.periodKey(new Date(2026, 8, 20), {}), '2026-09', 'grupo viejo sin freq = mensual');
+eq(L.periodKey(new Date(2026, 8, 20), gd), 'd2026-09-20', 'diaria');
+eq(L.periodKey(new Date(2026, 11, 31), gd), 'd2026-12-31', 'diaria fin de año');
+eq(L.periodKey(new Date(2026, 8, 20), gs), 's2026-09-20', 'semanal: domingo 20 cierra el 20');
+eq(L.periodKey(new Date(2026, 8, 19), gs), 's2026-09-13', 'semanal: sábado 19 cae en semana del 13');
+eq(L.periodKey(new Date(2026, 8, 21), gs), 's2026-09-20', 'semanal: lunes 21 cae en semana del 20');
+eq(L.periodKey(new Date(2026, 8, 19), {freq:'semana',cutWeekday:5}), 's2026-09-18', 'semanal: sábado 19 con cierre viernes -> viernes 18');
+eq(L.prevPeriod('2026-09', gm), '2026-08', 'prevPeriod mensual');
+eq(L.prevPeriod('2026-01', gm), '2025-12', 'prevPeriod mensual año');
+eq(L.nextPeriod('2026-12', gm), '2027-01', 'nextPeriod mensual año');
+eq(L.prevPeriod('d2026-09-01', gd), 'd2026-08-31', 'prevPeriod diaria cruza mes');
+eq(L.nextPeriod('d2026-12-31', gd), 'd2027-01-01', 'nextPeriod diaria cruza año');
+eq(L.prevPeriod('s2026-09-20', gs), 's2026-09-13', 'prevPeriod semanal');
+eq(L.nextPeriod('s2026-09-20', gs), 's2026-09-27', 'nextPeriod semanal');
+eq(L.periodLabel('2026-09', gm), 'septiembre de 2026', 'periodLabel mensual');
+eq(L.periodLabel('d2026-05-04', gd), 'lunes, 4 de mayo de 2026', 'periodLabel diaria');
+eq(L.periodLabel('s2026-09-20', gs), 'Semana del 14 al 20 de septiembre', 'periodLabel semanal');
+eq(L.periodLabel('s2026-10-04', gs), 'Semana del 28 de septiembre al 4 de octubre', 'periodLabel semanal cruza mes');
+eq(L.freqLabel(gm), 'Mensual · corte día 5', 'freqLabel mensual');
+eq(L.freqLabel(gs), 'Semanal · cierra domingo', 'freqLabel semanal');
+eq(L.freqLabel(gd), 'Diaria', 'freqLabel diaria');
+eq(L.freqLabel({}), 'Mensual · corte día 1', 'freqLabel grupo viejo');
 
 /* --- dinero --- */
 eq(L.fmtMoney(500, 'RD$'), 'RD$500', 'fmtMoney RD$');
@@ -48,11 +69,11 @@ eq(sum.paid.length, 6, 'lista paid');
 eq(sum.owed.length, 4, 'lista owed');
 
 /* --- textos --- */
-var rt = L.reminderText(mems[6], g, L.periodLabel('2026-09'));
+var rt = L.reminderText(mems[6], g, L.periodLabel('2026-09', g));
 t(rt.indexOf('Miembro 7') >= 0 && rt.indexOf('RD$500') >= 0 && rt.indexOf('septiembre de 2026') >= 0, 'reminderText: ' + rt);
-var dt = L.debtorsText(g, sum, L.periodLabel('2026-09'));
+var dt = L.debtorsText(g, sum, L.periodLabel('2026-09', g));
 t(dt.indexOf('Miembro 7') >= 0 && dt.indexOf('Miembro 10') >= 0 && dt.indexOf('Pendientes (4)') >= 0, 'debtorsText');
-var st = L.summaryText(g, sum, L.periodLabel('2026-09'));
+var st = L.summaryText(g, sum, L.periodLabel('2026-09', g));
 t(st.indexOf('RD$3,000') >= 0 && st.indexOf('RD$2,000') >= 0 && st.indexOf('RD$5,000') >= 0, 'summaryText números');
 
 /* --- CSV --- */

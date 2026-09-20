@@ -98,7 +98,7 @@ function renderHome(){
 
   ids.forEach(function(gid){
     var g=S.groups[gid];
-    var mk=L.periodKey(new Date(), g.cutDay);
+    var mk=L.periodKey(new Date(), g);
     var sum=sumFor(gid, mk);
     var b=document.createElement('button');
     b.className='gitem';
@@ -129,7 +129,7 @@ var curGid=null, curMonth=null;
 function openGroup(gid){
   var g=S.groups[gid]; if(!g){ renderHome(); return; }
   curGid=gid;
-  curMonth=S.ui['m_'+gid] || L.periodKey(new Date(), g.cutDay);
+  curMonth=S.ui['m_'+gid] || L.periodKey(new Date(), g);
   renderGroup();
 }
 
@@ -137,7 +137,7 @@ function renderGroup(){
   var g=S.groups[curGid]; if(!g){ renderHome(); return; }
   show('v-group');
   $('gName').textContent=g.name;
-  $('gMeta').textContent=L.fmtMoney(g.amount,g.currency)+' por miembro · Corte día '+g.cutDay;
+  $('gMeta').textContent=L.fmtMoney(g.amount,g.currency)+' por miembro · '+L.freqLabel(g);
   renderMonth();
 }
 
@@ -145,7 +145,7 @@ function renderMonth(){
   var g=S.groups[curGid];
   var mems=membersOf(curGid);
   var pays=S.payments[curGid]||{};
-  $('mLabel').textContent=L.periodLabel(curMonth);
+  $('mLabel').textContent=L.periodLabel(curMonth, g);
   var pm=paidMap(curGid, curMonth);
   var sum=L.monthSummary(g, mems, pm);
   $('tCollected').textContent=L.fmtMoney(sum.collected,g.currency);
@@ -194,29 +194,38 @@ function togglePay(mid){
 function remindOne(mid){
   var g=S.groups[curGid], m=S.members[mid];
   if (!m || !m.phone){ toast('Agrega el teléfono de '+(m?m.name:'este miembro')+' en Miembros.'); return; }
-  window.open(L.waLink(m.phone, L.reminderText(m, g, L.periodLabel(curMonth))), '_blank');
+  window.open(L.waLink(m.phone, L.reminderText(m, g, L.periodLabel(curMonth, g))), '_blank');
 }
 
-/* ---------- ONBOARDING (3 pasos) ---------- */
-var obDraft={name:'',amount:'',currency:'RD$',cut:'5'};
+/* ---------- ONBOARDING ---------- */
+var obDraft={name:'',amount:'',currency:'RD$',freq:'mes',cut:'5',cutWeekday:'0'};
+var obSteps=[];
+var WD_CORTOS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 function startOnboarding(){
-  obDraft={name:'',amount:'',currency:'RD$',cut:'5'};
+  obDraft={name:'',amount:'',currency:'RD$',freq:'mes',cut:'5',cutWeekday:'0'};
+  obSteps=['nombre','monto','frecuencia'];
   obStep(0);
+}
+function paintSegF(id, val, attr){
+  $(id).querySelectorAll('button').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute(attr)===String(val));
+  });
 }
 function obStep(n){
   show('v-ob');
   var dots=$('obDots'); dots.innerHTML='';
-  for(var i=0;i<3;i++){ var s=document.createElement('span'); if(i===n)s.className='on'; dots.appendChild(s); }
-  var q=$('obQ'), f=$('obField'), nx=$('obNext');
-  $('obSkip').style.display = n===2 ? 'none' : 'block';
-  nx.textContent = n===2 ? 'Crear grupo' : 'Continuar';
+  for(var i=0;i<obSteps.length;i++){ var s=document.createElement('span'); if(i===n)s.className='on'; dots.appendChild(s); }
+  var step=obSteps[n], q=$('obQ'), f=$('obField'), nx=$('obNext');
+  var last=(n===obSteps.length-1);
+  $('obSkip').style.display = last ? 'none' : 'block';
+  nx.textContent = last ? 'Crear grupo' : 'Continuar';
 
-  if(n===0){
+  if(step==='nombre'){
     q.textContent='¿Cómo se llama tu grupo?';
     f.innerHTML='<input id="obIn" type="text" placeholder="Junta de Vecinos Los Prados" maxlength="60" autocomplete="off">';
     $('obIn').value=obDraft.name;
     setTimeout(function(){ $('obIn').focus(); },50);
-  }else if(n===1){
+  }else if(step==='monto'){
     q.textContent='¿De cuánto es la cuota?';
     f.innerHTML='<div class="seg" id="obCur"><button data-cur="RD$">RD$</button><button data-cur="USD">US$</button></div>'+
       '<input id="obIn" type="number" min="1" inputmode="numeric" placeholder="500" style="margin-top:14px">';
@@ -226,6 +235,28 @@ function obStep(n){
       b.addEventListener('click', function(){ obDraft.currency=b.getAttribute('data-cur'); paintSeg('obCur', obDraft.currency); });
     });
     setTimeout(function(){ $('obIn').focus(); },50);
+  }else if(step==='frecuencia'){
+    q.textContent='¿Cada cuánto pagan la cuota?';
+    f.innerHTML='<div class="seg" id="obFreq"><button data-f="dia">Diaria</button>'+
+      '<button data-f="semana">Semanal</button><button data-f="mes">Mensual</button></div>';
+    paintSegF('obFreq', obDraft.freq, 'data-f');
+    $('obFreq').querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        obDraft.freq=b.getAttribute('data-f'); paintSegF('obFreq', obDraft.freq, 'data-f');
+      });
+    });
+  }else if(step==='diaSemana'){
+    q.textContent='¿Qué día cierran la semana?';
+    var h='<div class="seg7" id="obWd">';
+    for(var i=0;i<7;i++) h+='<button data-w="'+i+'">'+WD_CORTOS[i]+'</button>';
+    h+='</div><p class="fine">La semana se cuenta hasta ese día.</p>';
+    f.innerHTML=h;
+    paintSegF('obWd', obDraft.cutWeekday, 'data-w');
+    $('obWd').querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        obDraft.cutWeekday=b.getAttribute('data-w'); paintSegF('obWd', obDraft.cutWeekday, 'data-w');
+      });
+    });
   }else{
     q.textContent='¿Qué día del mes cierran?';
     f.innerHTML='<input id="obIn" type="number" min="1" max="28" inputmode="numeric" placeholder="5" style="margin-top:6px">'+
@@ -235,22 +266,36 @@ function obStep(n){
   }
 
   nx.onclick=function(){
-    var v=$('obIn').value.trim();
-    if(n===0){
+    if(step==='nombre'){
+      var v=$('obIn').value.trim();
       if(!v){ toast('Escribe el nombre del grupo.'); return; }
-      obDraft.name=v; obStep(1);
-    }else if(n===1){
-      var a=parseInt(v,10);
+      obDraft.name=v; obStep(n+1);
+    }else if(step==='monto'){
+      var a=parseInt($('obIn').value,10);
       if(!a||a<=0){ toast('Escribe el monto de la cuota.'); return; }
-      obDraft.amount=a; obStep(2);
+      obDraft.amount=a; obStep(n+1);
+    }else if(step==='frecuencia'){
+      obSteps=['nombre','monto','frecuencia'].concat(
+        obDraft.freq==='semana' ? ['diaSemana'] : obDraft.freq==='mes' ? ['diaMes'] : []);
+      obStep(n+1);
     }else{
-      var c=parseInt(v,10);
-      if(!c||c<1||c>28){ toast('Usa un día del 1 al 28.'); return; }
-      obDraft.cut=c; finishOnboarding();
+      if(step==='diaMes'){
+        var c=parseInt($('obIn').value,10);
+        if(!c||c<1||c>28){ toast('Usa un día del 1 al 28.'); return; }
+        obDraft.cut=c;
+      }
+      finishOnboarding();
     }
   };
-  $('obIn').addEventListener('keydown', function(e){ if(e.key==='Enter') nx.onclick(); });
-  $('obSkip').onclick=function(){ if(n<2) obStep(n+1); };
+  var inp=$('obIn');
+  if(inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter') nx.onclick(); });
+  $('obSkip').onclick=function(){
+    if(step==='frecuencia'){
+      obSteps=['nombre','monto','frecuencia'].concat(
+        obDraft.freq==='semana' ? ['diaSemana'] : obDraft.freq==='mes' ? ['diaMes'] : []);
+    }
+    if(n<obSteps.length-1) obStep(n+1);
+  };
 }
 function paintSeg(id, cur){
   $(id).querySelectorAll('button').forEach(function(b){
@@ -259,7 +304,10 @@ function paintSeg(id, cur){
 }
 function finishOnboarding(){
   var g={ id:L.uid(), name:obDraft.name, amount:obDraft.amount,
-          currency:obDraft.currency, cutDay:obDraft.cut, createdAt:Date.now() };
+          currency:obDraft.currency, freq:obDraft.freq,
+          cutDay:parseInt(obDraft.cut,10)||5,
+          cutWeekday:parseInt(obDraft.cutWeekday,10)||0,
+          createdAt:Date.now() };
   S.groups[g.id]=g; S.onboarded=true; save();
   toast('Grupo creado. Agrega a los miembros y toca Terminar.');
   openGroup(g.id);
@@ -310,12 +358,12 @@ function openHistory(){
   var mems=membersOf(curGid);
   var keys=Object.keys(pays).sort().reverse();
   var list=$('histList'); list.innerHTML='';
-  if(!keys.length){ list.innerHTML='<div class="empty"><p>Todavía no hay meses registrados.</p></div>'; return; }
+  if(!keys.length){ list.innerHTML='<div class="empty"><p>Todavía no hay períodos registrados.</p></div>'; return; }
   keys.forEach(function(k){
     var sum=L.monthSummary(g, mems, pays[k]||{});
     var b=document.createElement('button');
     b.className='hitem';
-    b.innerHTML='<span class="hinfo"><span class="hlabel">'+esc(L.periodLabel(k))+'</span>'+
+    b.innerHTML='<span class="hinfo"><span class="hlabel">'+esc(L.periodLabel(k, g))+'</span>'+
       '<span class="hstat">'+sum.countPaid+' de '+sum.countTotal+' pagaron · '+L.fmtMoney(sum.collected,g.currency)+'</span></span>'+
       '<span class="gchev">›</span>';
     b.addEventListener('click', function(){ curMonth=k; S.ui['m_'+curGid]=k; save(); renderGroup(); });
@@ -327,22 +375,52 @@ function openHistory(){
 function openSettings(){
   var g=S.groups[curGid]; if(!g) return;
   show('v-settings');
-  $('setName').value=g.name; $('setAmount').value=g.amount; $('setCut').value=g.cutDay;
+  $('setName').value=g.name; $('setAmount').value=g.amount;
   paintSeg('setCurrency', g.currency);
   $('setCurrency').querySelectorAll('button').forEach(function(b){
     b.addEventListener('click', function(){ paintSeg('setCurrency', b.getAttribute('data-cur')); });
   });
+  $('setFreqInfo').textContent='Frecuencia: '+L.freqLabel(g)+'. Se elige al crear el grupo.';
+  renderAnchorSetting(g);
   var del=$('setDelete'); del.textContent='Eliminar grupo'; del.dataset.confirm='';
+}
+function renderAnchorSetting(g){
+  var w=$('setAnchorWrap'), f=L.freqOf(g);
+  if(f==='dia'){ w.innerHTML='<p class="fine">La cuota se cobra todos los días.</p>'; return; }
+  if(f==='semana'){
+    var wd=Math.min(Math.max(parseInt(g.cutWeekday,10)||0,0),6);
+    var h='<label class="flabel">Día de cierre de la semana</label><div class="seg7" id="setWd">';
+    for(var i=0;i<7;i++) h+='<button data-w="'+i+'" class="'+(i===wd?'on':'')+'">'+WD_CORTOS[i]+'</button>';
+    w.innerHTML=h+'</div>';
+    $('setWd').querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        $('setWd').querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+      });
+    });
+    return;
+  }
+  w.innerHTML='<label class="flabel">Día de corte del mes</label>'+
+    '<input id="setCut" type="number" min="1" max="28" inputmode="numeric">';
+  $('setCut').value=g.cutDay||5;
 }
 function saveSettings(){
   var g=S.groups[curGid]; if(!g) return;
-  var name=$('setName').value.trim(), amount=parseInt($('setAmount').value,10), cut=parseInt($('setCut').value,10);
+  var f=L.freqOf(g);
+  var name=$('setName').value.trim(), amount=parseInt($('setAmount').value,10);
   var cur=$('setCurrency').querySelector('button.on').getAttribute('data-cur');
   if(!name){ toast('El grupo necesita un nombre.'); return; }
   if(!amount||amount<=0){ toast('Revisa el monto.'); return; }
-  if(!cut||cut<1||cut>28){ toast('El día de corte va del 1 al 28.'); return; }
-  g.name=name; g.amount=amount; g.currency=cur; g.cutDay=cut;
-  S.ui['m_'+curGid]=L.periodKey(new Date(), cut); curMonth=S.ui['m_'+curGid];
+  if(f==='mes'){
+    var cut=parseInt($('setCut').value,10);
+    if(!cut||cut<1||cut>28){ toast('El día de corte va del 1 al 28.'); return; }
+    g.cutDay=cut;
+  }else if(f==='semana'){
+    var on=$('setWd').querySelector('button.on');
+    g.cutWeekday=on?parseInt(on.getAttribute('data-w'),10):0;
+  }
+  g.name=name; g.amount=amount; g.currency=cur;
+  S.ui['m_'+curGid]=L.periodKey(new Date(), g); curMonth=S.ui['m_'+curGid];
   save(); renderGroup(); toast('Guardado.');
 }
 
@@ -358,6 +436,8 @@ var FAQS=[
    'El enlace de miembros es para que vean quién va al día, sin poder cambiar nada. El de tesorero abre tu grupo en tu teléfono para seguir anotando.'],
   ['¿Qué pasa si cambio de teléfono?',
    'Tus datos están en este teléfono. La sincronización automática entre teléfonos llega en la próxima versión.'],
+  ['¿Se puede cobrar diario o semanal?',
+   'Sí. Al crear el grupo eliges la frecuencia: diaria, semanal o mensual.'],
   ['¿Cuánto cuesta?',
    '30 días gratis. Después US$2 al mes o US$20 al año por grupo. Tus datos nunca se borran.']
 ];
@@ -397,7 +477,8 @@ function shareSheet(){
   var mems=membersOf(curGid);
   var pays=S.payments[curGid]||{};
   var snap=L.encodeSnapshot({
-    g:{id:g.id, name:g.name, amount:g.amount, currency:g.currency, cutDay:g.cutDay},
+    g:{id:g.id, name:g.name, amount:g.amount, currency:g.currency,
+       freq:g.freq, cutDay:g.cutDay, cutWeekday:g.cutWeekday},
     members:mems.map(function(m){ return {id:m.id, name:m.name}; }),
     payments:pays, month:curMonth
   });
@@ -423,7 +504,7 @@ function showReadonly(payload){
   show('v-readonly');
   var g=snap.g, mk=snap.month;
   $('roName').textContent=g.name;
-  $('roMonth').textContent=L.periodLabel(mk);
+  $('roMonth').textContent=L.periodLabel(mk, g);
   var pm=(snap.payments||{})[mk]||{};
   var sum=L.monthSummary(g, snap.members||[], pm);
   $('roCollected').textContent=L.fmtMoney(sum.collected,g.currency);
@@ -472,20 +553,20 @@ $('btnNewGroup').addEventListener('click', function(){ locked()?renderPay():star
 $('btnFaqHome').addEventListener('click', function(){ renderFaq('home'); });
 $('btnBack').addEventListener('click', renderHome);
 $('btnMore').addEventListener('click', moreSheet);
-$('mPrev').addEventListener('click', function(){ curMonth=L.prevPeriod(curMonth); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
-$('mNext').addEventListener('click', function(){ curMonth=L.nextPeriod(curMonth); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
+$('mPrev').addEventListener('click', function(){ var g=S.groups[curGid]; curMonth=L.prevPeriod(curMonth, g); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
+$('mNext').addEventListener('click', function(){ var g=S.groups[curGid]; curMonth=L.nextPeriod(curMonth, g); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
 
 $('btnRemindAll').addEventListener('click', function(){
   var g=S.groups[curGid];
   var sum=sumFor(curGid, curMonth);
   if(!sum.owed.length){ toast('Todos están al día. 🎉'); return; }
-  copyText(L.debtorsText(g, sum, L.periodLabel(curMonth)),
+  copyText(L.debtorsText(g, sum, L.periodLabel(curMonth, g)),
     'Texto copiado. Pégalo en tu grupo de WhatsApp.');
 });
 $('btnSummary').addEventListener('click', function(){
   var g=S.groups[curGid];
   var sum=sumFor(curGid, curMonth);
-  copyText(L.summaryText(g, sum, L.periodLabel(curMonth)),
+  copyText(L.summaryText(g, sum, L.periodLabel(curMonth, g)),
     'Resumen copiado. Compártelo por WhatsApp.');
 });
 

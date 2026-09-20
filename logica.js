@@ -7,37 +7,89 @@
   var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio',
                'agosto','septiembre','octubre','noviembre','diciembre'];
 
-  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  var DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 
-  // Clave "YYYY-MM" del período que contiene `date`, dado el día de corte (1-28).
-  // corte=1 -> mes calendario. corte=15 -> del 15 al 14 del mes siguiente.
-  L.periodKey = function (date, cutDay) {
-    var c = Math.min(Math.max(parseInt(cutDay, 10) || 1, 1), 28);
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function dateKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function parseKeyDate(s) {
+    var p = String(s).split('-');
+    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+  }
+  function addDays(d, n) {
+    var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() + n);
+    return x;
+  }
+
+  // Frecuencia del grupo: 'dia' | 'semana' | 'mes'. Los grupos viejos son 'mes'.
+  L.freqOf = function (g) {
+    var f = (g && g.freq) || 'mes';
+    return (f === 'dia' || f === 'semana' || f === 'mes') ? f : 'mes';
+  };
+
+  // Clave del período que contiene `date`.
+  // mes: "YYYY-MM" (corte=1 -> mes calendario; corte=15 -> del 15 al 14).
+  // semana: "sYYYY-MM-DD" del día de cierre (cutWeekday 0=domingo..6=sábado más reciente).
+  // dia: "dYYYY-MM-DD".
+  L.periodKey = function (date, g) {
+    var f = L.freqOf(g);
+    if (f === 'dia') return 'd' + dateKey(date);
+    if (f === 'semana') {
+      var wd = Math.min(Math.max(parseInt(g && g.cutWeekday, 10) || 0, 0), 6);
+      var d = addDays(date, -((date.getDay() - wd + 7) % 7));
+      return 's' + dateKey(d);
+    }
+    var c = Math.min(Math.max(parseInt(g && g.cutDay, 10) || 1, 1), 28);
     var y = date.getFullYear(), m = date.getMonth();
     if (date.getDate() < c) { m -= 1; if (m < 0) { m = 11; y -= 1; } }
     return y + '-' + pad2(m + 1);
   };
 
-  // "2026-09" -> "septiembre de 2026"
-  L.periodLabel = function (key) {
-    var p = String(key || '').split('-');
-    var m = parseInt(p[1], 10);
-    if (!p[0] || !m || m < 1 || m > 12) return String(key || '');
-    return MESES[m - 1] + ' de ' + p[0];
-  };
-
-  // Clave del período anterior a "YYYY-MM"
-  L.prevPeriod = function (key) {
-    var p = String(key).split('-'), y = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  // Clave del período anterior / siguiente.
+  L.prevPeriod = function (key, g) {
+    var f = L.freqOf(g), k = String(key);
+    if (f === 'dia' || k.charAt(0) === 'd') return 'd' + dateKey(addDays(parseKeyDate(k.slice(1)), -1));
+    if (f === 'semana' || k.charAt(0) === 's') return 's' + dateKey(addDays(parseKeyDate(k.slice(1)), -7));
+    var p = k.split('-'), y = parseInt(p[0], 10), m = parseInt(p[1], 10);
     m -= 1; if (m < 1) { m = 12; y -= 1; }
     return y + '-' + pad2(m);
   };
-
-  // Clave del período siguiente
-  L.nextPeriod = function (key) {
-    var p = String(key).split('-'), y = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  L.nextPeriod = function (key, g) {
+    var f = L.freqOf(g), k = String(key);
+    if (f === 'dia' || k.charAt(0) === 'd') return 'd' + dateKey(addDays(parseKeyDate(k.slice(1)), 1));
+    if (f === 'semana' || k.charAt(0) === 's') return 's' + dateKey(addDays(parseKeyDate(k.slice(1)), 7));
+    var p = k.split('-'), y = parseInt(p[0], 10), m = parseInt(p[1], 10);
     m += 1; if (m > 12) { m = 1; y += 1; }
     return y + '-' + pad2(m);
+  };
+
+  // Etiqueta legible del período.
+  L.periodLabel = function (key, g) {
+    var k = String(key || '');
+    if (k.charAt(0) === 'd') {
+      var d = parseKeyDate(k.slice(1));
+      if (dateKey(d) === dateKey(new Date())) return 'Hoy';
+      return DIAS[d.getDay()] + ', ' + d.getDate() + ' de ' + MESES[d.getMonth()] + ' de ' + d.getFullYear();
+    }
+    if (k.charAt(0) === 's') {
+      var c = parseKeyDate(k.slice(1)), ini = addDays(c, -6);
+      if (ini.getMonth() === c.getMonth())
+        return 'Semana del ' + ini.getDate() + ' al ' + c.getDate() + ' de ' + MESES[c.getMonth()];
+      return 'Semana del ' + ini.getDate() + ' de ' + MESES[ini.getMonth()] +
+        ' al ' + c.getDate() + ' de ' + MESES[c.getMonth()];
+    }
+    var p = k.split('-'), m = parseInt(p[1], 10);
+    if (!p[0] || !m || m < 1 || m > 12) return k;
+    return MESES[m - 1] + ' de ' + p[0];
+  };
+
+  // "Mensual · corte día 5" / "Semanal · cierra domingo" / "Diaria"
+  L.freqLabel = function (g) {
+    var f = L.freqOf(g);
+    if (f === 'dia') return 'Diaria';
+    if (f === 'semana')
+      return 'Semanal · cierra ' + DIAS[Math.min(Math.max(parseInt(g.cutWeekday, 10) || 0, 0), 6)];
+    return 'Mensual · corte día ' + Math.min(Math.max(parseInt(g.cutDay, 10) || 1, 1), 28);
   };
 
   L.fmtMoney = function (n, currency) {
@@ -129,7 +181,7 @@
       var map = payments[per] || {};
       (members || []).forEach(function (m) {
         var ts = map[m.id];
-        rows.push([group.name, m.name, m.phone || '', L.periodLabel(per),
+        rows.push([group.name, m.name, m.phone || '', L.periodLabel(per, group),
           ts ? 'Pagó' : 'Debe',
           ts ? new Date(ts).toLocaleDateString('es-DO') : '']);
       });
