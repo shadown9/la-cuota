@@ -151,8 +151,8 @@ function renderHome(){
     b.className='gitem';
     b.innerHTML='<span class="gdot">'+esc(initials(g.name))+'</span>'+
       '<span class="ginfo"><span class="gname">'+esc(g.name)+'</span>'+
-      '<span class="gstat">'+sum.countPaid+' de '+sum.countTotal+' al día · '+
-        (sum.missing>0 ? 'Faltan '+L.fmtMoney(sum.missing,g.currency) : 'Todo al día')+'</span></span>'+
+      '<span class="gstat">'+sum.countPaid+' de '+sum.countTotal+' pagaron · '+
+        (sum.missing>0 ? 'Faltan '+L.fmtMoney(sum.missing,g.currency) : 'Todos pagaron')+'</span></span>'+
       '<span class="gchev">›</span>';
     b.addEventListener('click', function(){ openGroup(gid); });
     list.appendChild(b);
@@ -659,7 +659,7 @@ function printReport(){
     '<table><thead><tr><th>Miembro</th><th>Teléfono</th><th>Estado</th><th>Monto</th><th>Fecha de pago</th></tr></thead>'+
     '<tbody>'+(rows||'<tr><td colspan="5">Sin miembros.</td></tr>')+'</tbody></table>'+
     '<p class="pr-tot">Recaudado: '+esc(L.fmtMoney(sum.collected,g.currency))+' de '+esc(L.fmtMoney(sum.total,g.currency))+
-    ' · Faltan: '+esc(L.fmtMoney(sum.missing,g.currency))+' · '+sum.countPaid+' de '+sum.countTotal+' al día</p>'+
+    ' · Faltan: '+esc(L.fmtMoney(sum.missing,g.currency))+' · '+sum.countPaid+' de '+sum.countTotal+' pagaron</p>'+
     '<p class="pr-foot">Organizado con La Cuota · '+new Date().toLocaleDateString('es-DO')+'</p>';
   document.body.appendChild(el);
   document.body.classList.add('printing');
