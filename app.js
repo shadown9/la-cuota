@@ -663,8 +663,18 @@ function printReport(){
     '<p class="pr-foot">Organizado con La Cuota · '+new Date().toLocaleDateString('es-DO')+'</p>';
   document.body.appendChild(el);
   document.body.classList.add('printing');
+  var done=false;
+  function cleanup(){
+    if(done) return; done=true;
+    document.body.classList.remove('printing'); el.remove();
+    if(window.onafterprint===cleanup) window.onafterprint=null;
+  }
+  // Limpia cuando el diálogo de impresión se cierra (Android tarda más
+  // que el escritorio en generar la vista previa; no se puede usar un
+  // tiempo fijo porque el reporte desaparecería antes de imprimirse).
+  window.onafterprint=cleanup;
+  setTimeout(cleanup, 60000); // respaldo por si el navegador no avisa
   window.print();
-  setTimeout(function(){ document.body.classList.remove('printing'); el.remove(); }, 800);
 }
 
 /* ---------- CSV ---------- */
