@@ -400,6 +400,9 @@ t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTi
   t('prueba y suscripción: sin excepción', !threw, threw && threw.message);
 })();
 
+t('plan anual: sin frase que prometa meses extra', !/meses gratis/.test(indexHtml));
+t('plan anual: explica que son 12 meses por $20',
+  /12 meses por el precio de 10/.test(indexHtml) && /El plan anual cubre 12 meses por \$20/.test(indexHtml));
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');
   process.exit(failures ? 1 : 0);
