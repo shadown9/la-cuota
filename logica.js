@@ -251,7 +251,10 @@
     return {
       meta: { id: gid, name: g.name || '', amount: g.amount || 0, currency: g.currency || 'RD$',
               freq: L.freqOf(g), cutDay: g.cutDay || 1, cutWeekday: (g.cutWeekday == null ? 0 : g.cutWeekday),
-              createdAt: g.createdAt || 0, updatedAt: g.updatedAt || g.createdAt || 0 },
+              createdAt: g.createdAt || 0, updatedAt: g.updatedAt || g.createdAt || 0,
+              /* La prueba gratis viaja con el grupo: borrar la app o el caché
+                 no la reinicia, porque la nube recuerda cuándo empezó. */
+              trialStart: (S.trialStart || 0) },
       members: members, payments: pays, payTs: payTs, delMembers: dels, unpays: unp
     };
   };
@@ -261,6 +264,10 @@
     S.groups = S.groups || {}; S.members = S.members || {};
     S.payments = S.payments || {}; S.payTs = S.payTs || {}; S.delMembers = S.delMembers || {}; S.unpays = S.unpays || {};
     S.groups[gid] = st.meta;
+    /* La prueba adopta la fecha MÁS VIEJA conocida (local o nube).
+       Así ni borrando datos ni reinstalando se consigue otra prueba. */
+    var rt = (st.meta || {}).trialStart || 0;
+    if (rt && (!S.trialStart || rt < S.trialStart)) S.trialStart = rt;
     Object.keys(S.members).forEach(function (mid) { if (S.members[mid] && S.members[mid].gid === gid) delete S.members[mid]; });
     Object.keys(st.members || {}).forEach(function (mid) { S.members[mid] = st.members[mid]; });
     S.payments[gid] = st.payments || {};
@@ -270,6 +277,8 @@
   };
 
   function maxTs(a, b) { return Math.max(a || 0, b || 0); }
+  // El menor valor positivo: la prueba que empezó primero es la que vale.
+  function minPos(a, b) { a = a || 0; b = b || 0; if (a && b) return a < b ? a : b; return a || b; }
 
   // Fusiona foto local con foto remota. Gana lo más reciente por campo.
   // Devuelve {state, changed}.
@@ -279,6 +288,13 @@
     var changed = false;
     var meta = (remote.meta.updatedAt || 0) > (local.meta.updatedAt || 0) ? remote.meta : local.meta;
     if (meta !== local.meta) changed = true;
+    // La prueba NUNCA se extiende al fusionar: gana la fecha más vieja.
+    var mt = minPos((local.meta || {}).trialStart, (remote.meta || {}).trialStart);
+    if (mt && mt !== (meta.trialStart || 0)) {
+      var nm = {};
+      Object.keys(meta).forEach(function (k) { nm[k] = meta[k]; });
+      nm.trialStart = mt; meta = nm;
+    }
     var members = {}, dels = {};
     var ids = {};
     Object.keys(local.members || {}).forEach(function (id) { ids[id] = 1; });

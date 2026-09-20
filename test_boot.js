@@ -444,6 +444,30 @@ t('la explicación presenta la dirección de Stripe como confianza', /buy\.strip
   t('explicación de planes: sin excepción', !threw, threw && threw.message);
 })();
 
+/* 14. Borrar todo y recuperar NO reinicia la prueba (la nube manda) */
+asyncTests.push(new Promise(function(resolve){
+  var sb = makeSandbox({ids: idsFromHtml(indexHtml)});
+  var NUBE_TRIAL = 1000; // la prueba original empezó aquí
+  loadApp(sb);
+  sb.CuotaNube = { /* nube.js la define real; aquí la simulamos */
+    lista: function(){ return true; },
+    obtener: function(){
+      return Promise.resolve({
+        meta:{ id:'g9', name:'Junta', amount:10, currency:'RD$', freq:'mensual',
+               cutDay:1, cutWeekday:0, createdAt:5, updatedAt:5, trialStart: NUBE_TRIAL },
+        members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}
+      });
+    }
+  };
+  t('arranque limpio: sin prueba local', sb.__lacuotaSub.trial()===0, String(sb.__lacuotaSub.trial()));
+  sb.__lacuotaSub.recover('g9', function(ok){
+    t('recuperar: el grupo vuelve de la nube', ok===true);
+    t('la prueba NO se reinicia: vale la fecha de la nube',
+      sb.__lacuotaSub.trial()===NUBE_TRIAL, String(sb.__lacuotaSub.trial()));
+    resolve();
+  });
+}));
+
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');
   process.exit(failures ? 1 : 0);

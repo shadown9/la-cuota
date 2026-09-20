@@ -754,6 +754,7 @@ window.__lacuotaSub = {
   pago: function(a){ S.payActive = !!a; },
   plan: function(w){ planExplain(w); },
   trial: function(){ return S.trialStart; },
+  recover: function(gid, cb){ fetchGroupToLocal(gid, cb); },
   abrir: function(u){ abrirUrlSegura(u, 'Prueba', 'Toca para abrir.'); },
   reintentar: function(u){ reintentarAbrir(u); }
 };
@@ -1146,7 +1147,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 39;
+var APP_V = 40;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

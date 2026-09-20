@@ -159,6 +159,24 @@ var s6={groups:{},members:{m9:{id:'m9',gid:'g1',name:'Viejo'}},payments:{},payTs
 L.applySnapshot(s6,'g1',snap1);
 t(s6.groups.g1.name==='Junta' && s6.members.m1 && !s6.members.m9 && s6.payments.g1.s1.m1===50, 'applySnapshot escribe estado');
 
+/* --- prueba gratis anclada a la nube: borrar datos no la reinicia --- */
+var st1=mkS(); st1.trialStart=1000;
+var snapt=L.groupSnapshot(st1,'g1');
+eq(snapt.meta.trialStart, 1000, 'snapshot: la prueba viaja con el grupo');
+// la fusión conserva la fecha MÁS VIEJA aunque el otro teléfono sea más nuevo
+var st2=mkS(); st2.trialStart=9000; st2.groups.g1.updatedAt=500;
+var mTrial=L.mergeGroup(snapt, L.groupSnapshot(st2,'g1'));
+eq(mTrial.state.meta.trialStart, 1000, 'merge: la prueba nunca se extiende');
+// al aplicar la foto de la nube, el teléfono adopta la fecha vieja
+var st3={groups:{},members:{},payments:{},payTs:{},delMembers:{},unpays:{},ui:{},trialStart:0};
+L.applySnapshot(st3,'g1',snapt);
+eq(st3.trialStart, 1000, 'apply: recupera la prueba original de la nube');
+// y jamás mueve la fecha hacia adelante
+var st4=mkS(); st4.trialStart=1000;
+var st5=mkS(); st5.trialStart=9000;
+L.applySnapshot(st4,'g1',L.groupSnapshot(st5,'g1'));
+eq(st4.trialStart, 1000, 'apply: no adelanta la prueba');
+
 
 
 /* Llave por grupo */
