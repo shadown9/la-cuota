@@ -481,6 +481,8 @@ t('v-verify está en la lista de vistas', /'v-verify'/.test(appJs));
 t('Firebase Auth se carga (compat, sin bloquear si no hay red)',
   /firebase-app-compat\.js/.test(indexHtml) && /firebase-auth-compat\.js/.test(indexHtml));
 t('la verificación habla con el worker (/trial)', /\/trial/.test(appJs) && /TRIAL_URL/.test(appJs));
+t('si la clave no está puesta, lo dice claro en vez de fallar raro',
+  /indexOf\('CLAVE_'\)===0/.test(appJs));
 t('existe la puerta L.needsVerify', /L\.needsVerify = function/.test(
   fs.readFileSync(path.join(DIR,'logica.js'),'utf8')));
 t('el primer pago no arranca prueba sin verificar', /ensureTrial\(\)/.test(appJs));
@@ -524,12 +526,16 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     a.__lacuotaSub.verificar();
     t('verificar(): muestra la pantalla v-verify',
       a.__els['v-verify'].hidden===false && a.__els['v-home'].hidden===true);
-    /* 15c: sin clave de Firebase aún → mensaje claro, sin llamadas de red */
+    /* 15c: con la clave real puesta, el botón intenta verificar de verdad.
+       En el sandbox no hay Firebase ni red: mensaje claro, sin llamadas. */
     var fetchCalls = 0;
     a.fetch = function(){ fetchCalls++; return Promise.reject(new Error('no debe llamarse')); };
     a.__els['verGoogle']._ev.click();
-    t('sin clave activada: avisa claro y no llama a la red',
-      fetchCalls===0 && a.__els['verMsg'].hidden===false && /aún no está activada/.test(a.__els['verMsg'].textContent));
+    t('con clave real: intenta verificar (no dice "no activada") y no llama a la red',
+      fetchCalls===0 && a.__els['verMsg'].hidden===false &&
+      !/aún no está activada/.test(a.__els['verMsg'].textContent) &&
+      /conexión/.test(a.__els['verMsg'].textContent),
+      a.__els['verMsg'].textContent);
   }catch(e){ threw = e; }
   t('verificación: sin excepción', !threw, threw && threw.message);
 })();

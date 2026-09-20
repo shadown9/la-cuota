@@ -156,7 +156,7 @@ function copyText(txt, okMsg){
    y recuerda qué cuentas ya usaron su prueba (una cuenta = una prueba,
    para siempre). Borrar la app o crear otro grupo no da otra prueba.
    La clave API de Firebase es pública por diseño (no es un secreto). */
-var FB_CONFIG = { apiKey:'CLAVE_API_WEB_DE_FIREBASE', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota' };
+var FB_CONFIG = { apiKey:'AIzaSyAuYIetDPremfkyuRzVwgTc-_bZqAjV1CU', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota' };
 var FB_AUTH = {
   ready: function(){
     try{
@@ -1287,7 +1287,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 40;
+var APP_V = 41;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
