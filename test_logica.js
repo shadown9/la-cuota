@@ -1,5 +1,5 @@
 /* Pruebas de logica.js — La Cuota (alineadas a la API real) */
-var L = require('/home/hatch/workspace/la_cuota/logica.js');
+var L = require('./logica.js');
 var ok = 0, bad = 0;
 function eq(a, b, name){
   var sa = JSON.stringify(a), sb = JSON.stringify(b);

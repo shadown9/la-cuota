@@ -261,7 +261,7 @@ function finishOnboarding(){
   var g={ id:L.uid(), name:obDraft.name, amount:obDraft.amount,
           currency:obDraft.currency, cutDay:obDraft.cut, createdAt:Date.now() };
   S.groups[g.id]=g; S.onboarded=true; save();
-  toast('Grupo creado. Agrega tus miembros.');
+  toast('Grupo creado. Agrega a los miembros y toca Terminar.');
   openGroup(g.id);
   setTimeout(openMembers, 600);
 }
@@ -491,6 +491,7 @@ $('btnSummary').addEventListener('click', function(){
 
 $('memBack').addEventListener('click', renderGroup);
 $('memAdd').addEventListener('click', addMember);
+$('memDone').addEventListener('click', renderGroup);
 $('histBack').addEventListener('click', renderGroup);
 $('setBack').addEventListener('click', renderGroup);
 $('setSave').addEventListener('click', saveSettings);
