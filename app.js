@@ -543,6 +543,36 @@ function showReadonly(payload){
   $('roOwed').innerHTML = owed.length ? owed.map(function(m){return row(m,'o');}).join('') : '<div class="empty"><p>Todos están al día. 🎉</p></div>';
 }
 
+/* ---------- reporte PDF (vía impresión) ---------- */
+function printReport(){
+  var g=S.groups[curGid]; if(!g) return;
+  var mems=membersOf(curGid);
+  var pm=paidMap(curGid, curMonth);
+  var sum=sumFor(curGid, curMonth);
+  var rows=mems.map(function(m){
+    var ts=pm[m.id];
+    return '<tr><td>'+esc(m.name)+'</td><td>'+esc(m.phone||'—')+'</td>'+
+      '<td>'+(ts?'Pagó':'Debe')+'</td>'+
+      '<td>'+(ts?L.fmtMoney(g.amount,g.currency):'—')+'</td>'+
+      '<td>'+(ts?new Date(ts).toLocaleDateString('es-DO'):'—')+'</td></tr>';
+  }).join('');
+  var old=document.getElementById('printReport'); if(old) old.remove();
+  var el=document.createElement('div');
+  el.id='printReport';
+  el.innerHTML=
+    '<h1>'+esc(g.name)+'</h1>'+
+    '<p class="pr-sub">'+esc(L.periodLabel(curMonth,g))+' · '+esc(L.freqLabel(g))+' · '+esc(L.fmtMoney(g.amount,g.currency))+' por miembro</p>'+
+    '<table><thead><tr><th>Miembro</th><th>Teléfono</th><th>Estado</th><th>Monto</th><th>Fecha de pago</th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="5">Sin miembros.</td></tr>')+'</tbody></table>'+
+    '<p class="pr-tot">Recaudado: '+esc(L.fmtMoney(sum.collected,g.currency))+' de '+esc(L.fmtMoney(sum.total,g.currency))+
+    ' · Faltan: '+esc(L.fmtMoney(sum.missing,g.currency))+' · '+sum.countPaid+' de '+sum.countTotal+' al día</p>'+
+    '<p class="pr-foot">Organizado con La Cuota · '+new Date().toLocaleDateString('es-DO')+'</p>';
+  document.body.appendChild(el);
+  document.body.classList.add('printing');
+  window.print();
+  setTimeout(function(){ document.body.classList.remove('printing'); el.remove(); }, 800);
+}
+
 /* ---------- CSV ---------- */
 function exportCSV(){
   var g=S.groups[curGid]; if(!g) return;
@@ -562,11 +592,13 @@ function moreSheet(){
     '<button class="sopt" id="moMem">👥&nbsp; Miembros</button>'+
     '<button class="sopt" id="moShare">🔗&nbsp; Compartir</button>'+
     '<button class="sopt" id="moHist">🕘&nbsp; Historial</button>'+
+    '<button class="sopt" id="moPdf">📄&nbsp; Reporte en PDF</button>'+
     '<button class="sopt" id="moCsv">⬇&nbsp; Descargar historial (CSV)</button>'+
     '<button class="sopt" id="moSet">⚙️&nbsp; Ajustes del grupo</button>');
   $('moMem').addEventListener('click', function(){ closeSheet(); openMembers(); });
   $('moShare').addEventListener('click', function(){ closeSheet(); shareSheet(); });
   $('moHist').addEventListener('click', function(){ closeSheet(); openHistory(); });
+  $('moPdf').addEventListener('click', function(){ closeSheet(); printReport(); });
   $('moCsv').addEventListener('click', function(){ closeSheet(); exportCSV(); });
   $('moSet').addEventListener('click', function(){ closeSheet(); openSettings(); });
 }
