@@ -195,6 +195,21 @@
       Math.floor(Math.random() * 1e6).toString(36);
   };
 
+  /* Identificador de grupo con llave: id_<base>_<secreto de 128 bits>.
+     La dirección completa en la nube ES la llave: sin ella no se puede
+     leer ni escribir el grupo. */
+  L.gidNuevo = function () {
+    var c = '0123456789abcdef', s = '';
+    for (var i = 0; i < 32; i++) s += c[(Math.random() * 16) | 0];
+    return 'id_' + Date.now().toString(36) +
+      Math.floor(Math.random() * 1e6).toString(36) + '_' + s;
+  };
+
+  /* Grupos creados antes de la llave (formato id_<base> sin secreto) */
+  L.esLegado = function (gid) {
+    return !/^id_[a-z0-9]+_[0-9a-f]{32}$/.test(gid || '');
+  };
+
   L.token = function () {
     var c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '';
     for (var i = 0; i < 12; i++) s += c[(Math.random() * c.length) | 0];

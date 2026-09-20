@@ -159,5 +159,15 @@ var s6={groups:{},members:{m9:{id:'m9',gid:'g1',name:'Viejo'}},payments:{},payTs
 L.applySnapshot(s6,'g1',snap1);
 t(s6.groups.g1.name==='Junta' && s6.members.m1 && !s6.members.m9 && s6.payments.g1.s1.m1===50, 'applySnapshot escribe estado');
 
+
+
+/* Llave por grupo */
+var _g1=L.gidNuevo(), _g2=L.gidNuevo();
+t(/^id_[a-z0-9]+_[0-9a-f]{32}$/.test(_g1), 'gidNuevo tiene formato id_<base>_<32 hex>');
+t(!L.esLegado(_g1), 'grupo nuevo no es legado');
+t(_g1!==_g2, 'gidNuevo genera llaves distintas');
+t(L.esLegado('id_mua66b5xk6r9'), 'grupo viejo es legado');
+t(L.esLegado(''), 'gid vacio cuenta como legado');
+
 console.log('\n' + ok + ' pasadas, ' + bad + ' falladas.');
 process.exit(bad ? 1 : 0);

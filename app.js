@@ -393,7 +393,7 @@ function paintSeg(id, cur){
   });
 }
 function finishOnboarding(){
-  var g={ id:L.uid(), name:obDraft.name, amount:obDraft.amount,
+  var g={ id:L.gidNuevo(), name:obDraft.name, amount:obDraft.amount,
           currency:obDraft.currency, freq:obDraft.freq,
           cutDay:parseInt(obDraft.cut,10)||5,
           cutWeekday:parseInt(obDraft.cutWeekday,10)||0,
@@ -801,6 +801,10 @@ function fetchGroupToLocal(gid, cb){
   if(S.groups[gid]){ cb(true); return; }
   if(!nubeLista()){ cb(false); return; }
   CuotaNube.obtener(gid).then(function(remote){
+    if(remote && remote.migratedTo){
+      /* Enlace viejo: la nube dice dónde vive el grupo ahora */
+      fetchGroupToLocal(remote.migratedTo, cb); return;
+    }
     if(remote && remote.meta){
       L.applySnapshot(S, gid, remote); S.onboarded=true; save(); cb(true);
     }else cb(false);
@@ -839,8 +843,12 @@ function route(){
     if(nubeLista()){
       toast('Buscando el grupo…');
       CuotaNube.obtener(gid).then(function(remote){
+        if(remote && remote.migratedTo){
+          location.hash='#/g/'+remote.migratedTo; route(); return;
+        }
         if(remote && remote.meta){
-          L.applySnapshot(S, gid, remote); S.onboarded=true; save(); openGroup(gid);
+          L.applySnapshot(S, gid, remote); S.onboarded=true;
+          limpiarLegados(gid); save(); openGroup(gid);
         }else{ toast('No se encontró ese grupo.'); renderHome(); }
       });
       return;
@@ -855,9 +863,34 @@ if('serviceWorker' in navigator){
   });
 }
 route();
+/* Grupos de antes de la llave: seguir el puntero migratedTo de la nube
+   y mover los datos locales a la dirección nueva (una sola vez). */
+function migrarLegados(){
+  Object.keys(S.groups).forEach(function(gid){
+    if(!L.esLegado(gid)) return;
+    CuotaNube.obtener(gid).then(function(remote){
+      var nuevo = remote && remote.migratedTo;
+      if(!nuevo || S.groups[nuevo]) return;
+      S.groups[nuevo] = S.groups[gid];
+      S.groups[nuevo].id = nuevo;
+      if(S.ui['m_'+gid]){ S.ui['m_'+nuevo]=S.ui['m_'+gid]; delete S.ui['m_'+gid]; }
+      delete S.groups[gid];
+      if(curGid===gid) curGid=nuevo;
+      save();
+      nubePull(nuevo, function(changed){ if(changed && curGid===nuevo) renderGroup(); });
+    });
+  });
+}
+/* Al abrir un grupo con llave, los grupos viejos locales ya no sirven */
+function limpiarLegados(excepto){
+  Object.keys(S.groups).forEach(function(gid){
+    if(gid!==excepto && L.esLegado(gid)) delete S.groups[gid];
+  });
+}
 /* Al arrancar: si hay nube, traer lo último de cada grupo en silencio
    y subir lo local (migración inicial de datos existentes) */
 if(nubeLista()){
+  migrarLegados();
   Object.keys(S.groups).forEach(function(gid){
     nubePull(gid, function(changed){
       if(changed && gid===curGid) renderGroup();
