@@ -610,17 +610,27 @@ function manageSub(){
     if(!email || email.indexOf('@') < 0) return;
   }
   toast('Abriendo tu suscripción…');
+  /* La pestaña se abre en el gesto del toque: si esperamos a que el
+     servidor responda, el bloqueador de ventanas la cancela y "no pasa nada". */
+  var w = null;
+  try{ w = window.open('about:blank', '_blank'); }catch(e){ w = null; }
+  function closeW(){ if(w){ try{ w.close(); }catch(e){} } }
   fetch(PAY_VERIFY_URL + '/portal?email=' + encodeURIComponent(email), {cache:'no-store'})
     .then(function(r){ return r.json(); })
     .then(function(res){
-      if(res && res.url){ window.open(res.url, '_blank'); }
+      if(res && res.url){
+        if(w && !w.closed){ w.location.href = res.url; }
+        else { location.href = res.url; }
+      }
       else if(res && res.error === 'not_found'){
+        closeW();
         toast('No encontramos una suscripción con ese correo.');
       }else{
+        closeW();
         toast('No se pudo abrir. Inténtalo de nuevo.');
       }
     })
-    .catch(function(){ toast('Sin conexión. Conéctate a internet e inténtalo de nuevo.'); });
+    .catch(function(){ closeW(); toast('Sin conexión. Conéctate a internet e inténtalo de nuevo.'); });
 }
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
@@ -899,6 +909,7 @@ $('histBack').addEventListener('click', renderGroup);
 $('pdBack').addEventListener('click', openHistory);
 $('setBack').addEventListener('click', renderGroup);
 $('setSave').addEventListener('click', saveSettings);
+$('setManageSub').addEventListener('click', manageSub);
 $('setDelete').addEventListener('click', function(){
   var b=$('setDelete'), g=S.groups[curGid];
   if(b.dataset.confirm==='1'){
