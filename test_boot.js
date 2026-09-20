@@ -79,6 +79,7 @@ function makeSandbox(opts){
     return el;
   }
   var store = {}, sstore = {};
+  if(opts.seed){ Object.keys(opts.seed).forEach(function(k){ store[k] = opts.seed[k]; }); }
   var notifCalls = [];
   var sb = {
     console:console,
@@ -209,22 +210,23 @@ t('el diálogo de correo guarda el correo para la próxima vez',
   var threw = null;
   try{
     var SUB = sb.__lacuotaSub;
-    /* caso 1: con correo guardado → directo al portal, sin preguntar */
+    /* caso 1: pagando y con correo guardado → directo al portal, sin preguntar */
+    SUB.pago(true);
     SUB.setEmail('deivy@correo.com');
     SUB.manage();
     t('con correo guardado: no pide el correo (cero prompts)', promptCalls===0);
     t('con correo guardado: llama al portal con ese correo',
       fetchUrls.length===1 && fetchUrls[0].indexOf('/portal?email=deivy%40correo.com')!==-1, fetchUrls.join('|'));
-    /* caso 2: sin correo → diálogo propio con campo de correo, sin prompt */
+    /* caso 2: pagando pero sin correo (otro teléfono) → diálogo propio, sin prompt */
     SUB.setEmail('');
     fetchUrls = [];
     promptCalls = 0;
     SUB.manage();
     var sheetHtml = (persist.sheet && persist.sheet.innerHTML) || '';
-    t('sin correo: no usa el globo negro del sistema', promptCalls===0);
-    t('sin correo: abre diálogo de La Cuota con campo de correo',
+    t('pagando sin correo: no usa el globo negro del sistema', promptCalls===0);
+    t('pagando sin correo: abre diálogo de La Cuota con campo de correo',
       /id="subEmail"/.test(sheetHtml) && /Continuar/.test(sheetHtml) && /Administrar suscripción/.test(sheetHtml));
-    t('sin correo: todavía no llama al portal', fetchUrls.length===0);
+    t('pagando sin correo: todavía no llama al portal', fetchUrls.length===0);
     /* caso 3: escribe el correo y continúa → lo guarda y abre el portal */
     persist.subEmail.value = 'deivy@correo.com';
     SUB.go();
@@ -242,6 +244,11 @@ t('el diálogo de correo guarda el correo para la próxima vez',
     persist.subEmail.value = 'no-es-correo';
     SUB.go();
     t('correo inválido: no llama al portal', fetchUrls.length===0);
+    /* caso 6: sin pagar → página de suscripción, ni diálogo ni portal */
+    SUB.pago(false); SUB.setEmail('');
+    fetchUrls = []; promptCalls = 0;
+    SUB.manage();
+    t('sin pagar: no pide correo ni llama al portal', promptCalls===0 && fetchUrls.length===0);
   }catch(e){ threw = e; }
   t('flujo de suscripción: sin excepción', !threw, threw && threw.message);
 })();
@@ -272,6 +279,7 @@ asyncTests.push((function(){
   function tick(n){ var p = Promise.resolve(); for(var i=0;i<(n||8);i++) p = p.then(function(){}); return p; }
   function okUrl(u){ return { json:function(){ return Promise.resolve({url:u}); } }; }
   var SUB = sb.__lacuotaSub;
+  SUB.pago(true); /* el portal solo aplica a quien paga */
   SUB.setEmail('deivy@correo.com');
   SUB.manage();
   return tick().then(function(){
@@ -311,6 +319,86 @@ asyncTests.push((function(){
     t('sin suscripción: no se abre ninguna pestaña', openCalls.length===0);
   });
 })());
+
+/* 11. Prueba gratis: si se perdió el inicio (recuperación/cambio de teléfono),
+   arranca desde el primer pago registrado y el aviso vuelve a verse */
+t('bootstrapTrial existe y se llama al arrancar',
+  /function bootstrapTrial\(\)/.test(appJs) && /bootstrapTrial\(\);/.test(appJs));
+t('manageSub sin suscripción activa lleva a la página de suscribirse',
+  /if\(!S\.payActive\)\{\s*renderPay\(\); return;\s*\}/.test(appJs));
+t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTitle/.test(appJs));
+(function(){
+  function psb(opts){
+    var sb = makeSandbox(opts);
+    var els = {};
+    var origGet = sb.document.getElementById;
+    sb.document.getElementById = function(id){
+      if(!els[id]) els[id] = origGet.call(sb.document, id);
+      return els[id];
+    };
+    sb.__els = els;
+    return sb;
+  }
+  function seed(o){
+    o = o || {};
+    return { lacuota_v1: JSON.stringify({
+      groups:o.groups||{}, members:{}, payments:o.payments||{}, payTs:{}, delMembers:{}, unpays:{},
+      onboarded:true, trialStart:o.trialStart||0, payActive:!!o.payActive, payEmail:o.payEmail||'',
+      notifyPay:false, ui:{}
+    })};
+  }
+  var DAY = 86400000, now = Date.now(), threw = null;
+  try{
+    /* 11a: con pagos viejos y sin trialStart → la prueba arranca del primer pago */
+    var OLD = now - 7*DAY;
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({
+      groups:{g1:{id:'g1',name:'T'}}, payments:{g1:{'2026-09':{m1:OLD}}}, trialStart:0 })});
+    loadApp(sb);
+    t('trial perdido: arranca desde el primer pago registrado', sb.__lacuotaSub.trial()===OLD);
+    t('trial perdido: el aviso vuelve a verse',
+      sb.__els.trialBanner.hidden===false && /Te quedan/.test(sb.__els.trialBanner.innerHTML) && /días/.test(sb.__els.trialBanner.innerHTML));
+    /* 11b: con grupos pero sin pagos → arranca hoy */
+    var sb2 = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'T'}}, trialStart:0})});
+    var before = Date.now(); loadApp(sb2);
+    var tr = sb2.__lacuotaSub.trial();
+    t('sin pagos previos: la prueba arranca hoy', tr>=before && tr<=Date.now());
+    /* 11c: sin grupos → no arranca nada */
+    var sb3 = psb({ids: idsFromHtml(indexHtml), seed: seed({trialStart:0})});
+    loadApp(sb3);
+    t('sin grupos: no se inventa prueba', sb3.__lacuotaSub.trial()===0);
+    /* 12a: sin suscripción activa → el botón lleva a suscribirse */
+    var sb4 = psb({ids: idsFromHtml(indexHtml), seed: seed({
+      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-5*DAY, payActive:false })});
+    loadApp(sb4);
+    t('etiqueta del botón sin pagar: "Suscribirme"',
+      sb4.__els.btnManageSub.textContent==='Suscribirme', sb4.__els.btnManageSub.textContent);
+    sb4.__lacuotaSub.manage();
+    t('sin pagar: abre la página de suscripción',
+      sb4.__els['v-pay'].hidden===false && sb4.__els['v-home'].hidden===true);
+    t('en prueba: el título invita a suscribirse',
+      sb4.__els.payTitle.textContent==='Suscríbete a La Cuota', sb4.__els.payTitle.textContent);
+    /* 12b: pagando → va al portal, no a la página de planes */
+    var sb5 = psb({ids: idsFromHtml(indexHtml), seed: seed({
+      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-5*DAY, payActive:true, payEmail:'d@x.com' })});
+    var urls = [];
+    sb5.fetch = function(u){ urls.push(String(u)); return Promise.reject(new Error('offline')); };
+    loadApp(sb5);
+    urls = []; /* el arranque re-verifica la suscripción; lo que importa es este toque */
+    t('etiqueta del botón pagando: "Administrar suscripción"',
+      sb5.__els.btnManageSub.textContent==='Administrar suscripción');
+    sb5.__lacuotaSub.manage();
+    t('pagando: pide el portal con su correo (no la página de planes)',
+      urls.length===1 && /\/portal\?email=/.test(urls[0]) && sb5.__els['v-pay'].hidden===true);
+    /* 12c: prueba vencida → título de prueba terminada */
+    var sb6 = psb({ids: idsFromHtml(indexHtml), seed: seed({
+      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-31*DAY, payActive:false })});
+    loadApp(sb6);
+    sb6.__lacuotaSub.manage();
+    t('prueba vencida: el título dice que terminó',
+      sb6.__els.payTitle.textContent==='Tu prueba terminó', sb6.__els.payTitle.textContent);
+  }catch(e){ threw = e; }
+  t('prueba y suscripción: sin excepción', !threw, threw && threw.message);
+})();
 
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');

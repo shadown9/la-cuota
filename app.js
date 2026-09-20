@@ -155,6 +155,26 @@ function trialDaysLeft(){
   return Math.max(0, TRIAL_DAYS-used);
 }
 function locked(){ return S.trialStart>0 && trialDaysLeft()<=0 && !S.payActive; }
+/* Si el usuario ya tiene grupos pero no hay trialStart (recuperó sus datos
+   con el enlace de tesorero o viene de una versión vieja), la prueba
+   arranca desde su primer pago registrado — o desde hoy si no hay pagos.
+   Sin esto, jamás vería el aviso de la prueba ni se le pediría pagar. */
+function bootstrapTrial(){
+  if(S.trialStart || !Object.keys(S.groups).length) return;
+  var first = 0;
+  Object.keys(S.payments || {}).forEach(function(gid){
+    var per = S.payments[gid] || {};
+    Object.keys(per).forEach(function(mes){
+      var pm = per[mes] || {};
+      Object.keys(pm).forEach(function(mid){
+        var ts = pm[mid];
+        if(ts && (!first || ts < first)) first = ts;
+      });
+    });
+  });
+  S.trialStart = first || Date.now();
+  save();
+}
 
 /* ---------- navegación ---------- */
 var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly','v-legal'];
@@ -201,6 +221,10 @@ function renderHome(){
     tb.style.cursor='pointer';
     tb.onclick=function(){ renderPay(); };
   } else tb.hidden=true;
+
+  /* El botón dice lo que corresponde: suscribirse o administrar */
+  var bm=$('btnManageSub');
+  if(bm) bm.textContent = S.payActive ? 'Administrar suscripción' : 'Suscribirme';
 
   ids.forEach(function(gid){
     var g=S.groups[gid];
@@ -635,6 +659,8 @@ var STRIPE_LINKS = {
   yearly:  'https://buy.stripe.com/14AcMYbMP7H45dy5jAbV601'
 };
 function renderPay(){
+  var pt=$('payTitle');
+  if(pt) pt.textContent = (S.trialStart && trialDaysLeft()>0 && !S.payActive) ? 'Suscríbete a La Cuota' : 'Tu prueba terminó';
   show('v-pay');
 }
 /* Abre el enlace de pago real de Stripe (modo live) */
@@ -642,12 +668,13 @@ function payGo(which){
   S.pendingPlan = which; save();
   window.open(STRIPE_LINKS[which], '_blank');
 }
-/* Portal del cliente: cancelar, cambiar de plan o actualizar la tarjeta.
-   El servidor crea una sesión segura con el correo que pagó en Stripe. */
+/* Suscripción: si ya paga, abre el portal; si no, lleva a la página para
+   suscribirse (pedirle el correo a quien nunca pagó no tiene sentido). */
 function manageSub(){
+  if(!S.payActive){ renderPay(); return; }
   var email = (S.payEmail || '').trim();
   if(email){ openPortal(email); return; } /* un toque: ya conocemos el correo */
-  subEmailAsk(); /* primera vez: diálogo propio, se recuerda para siempre */
+  subEmailAsk(); /* pagó en otro teléfono: el correo se pide una sola vez */
 }
 /* Pide el correo UNA sola vez en una pantalla de La Cuota (nada de globo
    negro del sistema) y lo guarda: la próxima vez entra directo. */
@@ -708,6 +735,8 @@ window.__lacuotaSub = {
   go: function(){ subEmailGo(); },
   getEmail: function(){ return S.payEmail; },
   setEmail: function(e){ S.payEmail = e; },
+  pago: function(a){ S.payActive = !!a; },
+  trial: function(){ return S.trialStart; },
   abrir: function(u){ abrirUrlSegura(u, 'Prueba', 'Toca para abrir.'); },
   reintentar: function(u){ reintentarAbrir(u); }
 };
@@ -1100,7 +1129,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 36;
+var APP_V = 37;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1159,6 +1188,7 @@ try{
       }
     }
   }
+  bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
   route();
   paintVer();
   checkAppUpdate();
