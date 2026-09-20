@@ -136,10 +136,24 @@ t(mMem.state.members.m1.name==='Ana María' && mMem.state.members.m2.name==='Lui
 var s4=mkS(); s4.delMembers={g1:{m1:400}}; delete s4.members.m1;
 var mDel=L.mergeGroup(snap1, L.groupSnapshot(s4,'g1'));
 t(!mDel.state.members.m1 && mDel.state.delMembers.m1===400, 'merge: borrado remoto elimina miembro');
-// pagos: gana el período con payTs mayor
-var s5=mkS(); s5.payments={g1:{s1:{}}}; s5.payTs={g1:{s1:500}};
+// pagos: fusión por miembro — dos teléfonos marcan distinto miembro y ambos sobreviven
+var s5=mkS(); s5.payments={g1:{s1:{m2:500}}}; s5.payTs={g1:{s1:500}};
 var mPay=L.mergeGroup(snap1, L.groupSnapshot(s5,'g1'));
-t(Object.keys(mPay.state.payments.s1).length===0, 'merge: pagos remotos más nuevos ganan');
+t(mPay.state.payments.s1.m1===50 && mPay.state.payments.s1.m2===500, 'merge: pagos concurrentes se unen por miembro');
+// deshacer (tombstone de pago) gana sobre un "pagó" más viejo
+var s7=mkS(); s7.payments={g1:{s1:{}}}; s7.unpays={g1:{s1:{m1:600}}};
+var mUn=L.mergeGroup(snap1, L.groupSnapshot(s7,'g1'));
+t(!mUn.state.payments.s1.m1 && mUn.state.unpays.s1.m1===600, 'merge: deshacer remoto gana sobre pago viejo');
+// un "pagó" más nuevo gana sobre un deshacer viejo
+var s8=mkS(); s8.unpays={g1:{s1:{m1:40}}};
+var mRe=L.mergeGroup(L.groupSnapshot(s8,'g1'), snap1);
+t(mRe.state.payments.s1.m1===50 && !(mRe.state.unpays.s1||{}).m1, 'merge: pago nuevo gana sobre deshacer viejo');
+// snapshot lleva y trae los deshacer
+var s9=mkS(); s9.unpays={g1:{s1:{m1:600}}};
+var snap9=L.groupSnapshot(s9,'g1');
+var s10={groups:{},members:{},payments:{},payTs:{},delMembers:{},unpays:{},ui:{}};
+L.applySnapshot(s10,'g1',snap9);
+t(s10.unpays.g1.s1.m1===600, 'snapshot: conserva deshacer');
 // applySnapshot escribe todo en S
 var s6={groups:{},members:{m9:{id:'m9',gid:'g1',name:'Viejo'}},payments:{},payTs:{},delMembers:{},ui:{}};
 L.applySnapshot(s6,'g1',snap1);

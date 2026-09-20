@@ -11,11 +11,12 @@ function load(){
   try{
     var raw = localStorage.getItem(KEY);
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
-      s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; return s; }
+      s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; return s; }
   }catch(e){}
-  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, onboarded:false, trialStart:0, payActive:false, notifyPay:false, ui:{}};
+  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, notifyPay:false, ui:{}};
 }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} nubePushSoon(); }
+function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+function save(){ persist(); nubePushSoon(); }
 
 /* ---------- NUBE ---------- */
 var nubeT=null, nubeUnsub=null;
@@ -25,11 +26,30 @@ function nubePushSoon(){
   clearTimeout(nubeT);
   nubeT=setTimeout(nubePushAll, 2000);
 }
+var nubePushing=false;
 function nubePushAll(){
-  if(!nubeLista()) return;
-  Object.keys(S.groups).forEach(function(gid){
-    CuotaNube.publicar(gid, L.groupSnapshot(S, gid));
+  if(!nubeLista() || nubePushing) return;
+  var gids=Object.keys(S.groups);
+  if(!gids.length) return;
+  nubePushing=true;
+  // Subir fusionando: primero trae la nube, mezcla con lo local y sube
+  // el resultado. Así un teléfono con datos viejos jamás borra lo nuevo.
+  var chain=Promise.resolve();
+  gids.forEach(function(gid){
+    chain=chain.then(function(){
+      var local=L.groupSnapshot(S, gid);
+      return CuotaNube.obtener(gid).then(function(remote){
+        var state=local;
+        if(remote && remote.meta){
+          var m=L.mergeGroup(local, remote);
+          state=m.state;
+          if(m.changed){ L.applySnapshot(S, gid, m.state); persist(); if(gid===curGid) renderGroup(); }
+        }
+        return CuotaNube.publicar(gid, state);
+      }).catch(function(){});
+    });
   });
+  chain.then(function(){ nubePushing=false; }, function(){ nubePushing=false; });
 }
 function nubePull(gid, done){
   if(!nubeLista()){ if(done)done(false); return; }
@@ -44,7 +64,9 @@ function nubeWatch(gid){
   nubeUnwatch();
   if(!nubeLista()) return;
   nubeUnsub=CuotaNube.suscribir(gid, function(){
-    // La nube avisa que algo cambió: traer todo y fusionar en silencio
+    // La nube avisa que algo cambió: cancelar cualquier subida pendiente
+    // (puede traer datos viejos) y traer todo para fusionar en silencio.
+    clearTimeout(nubeT);
     nubePull(gid, function(changed){ if(changed && curGid===gid) renderGroup(); });
   });
 }
@@ -244,9 +266,12 @@ function togglePay(mid){
   S.payments[curGid]=S.payments[curGid]||{};
   S.payments[curGid][curMonth]=S.payments[curGid][curMonth]||{};
   var p=S.payments[curGid][curMonth];
-  if (p[mid]){ delete p[mid]; }
+  S.unpays[curGid]=S.unpays[curGid]||{};
+  S.unpays[curGid][curMonth]=S.unpays[curGid][curMonth]||{};
+  if (p[mid]){ delete p[mid]; S.unpays[curGid][curMonth][mid]=Date.now(); }
   else{
     p[mid]=Date.now();
+    delete S.unpays[curGid][curMonth][mid];
     if (!S.trialStart){ S.trialStart=Date.now(); } // la prueba corre desde el primer pago
   }
   S.payTs[curGid]=S.payTs[curGid]||{};
@@ -760,7 +785,7 @@ $('setDelete').addEventListener('click', function(){
   if(b.dataset.confirm==='1'){
     Object.keys(S.members).forEach(function(k){ if(S.members[k].gid===curGid) delete S.members[k]; });
     var delGid=curGid;
-    delete S.payments[curGid]; delete S.payTs[curGid]; delete S.delMembers[curGid]; delete S.groups[curGid]; save();
+    delete S.payments[curGid]; delete S.payTs[curGid]; delete S.delMembers[curGid]; delete S.unpays[curGid]; delete S.groups[curGid]; save();
     if(nubeLista()) CuotaNube.borrar(delGid);
     renderHome(); toast('Grupo eliminado.');
   }else{ b.dataset.confirm='1'; b.textContent='Toca de nuevo para eliminar'; }

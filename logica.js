@@ -224,7 +224,7 @@
   // Foto sincronizable del grupo: meta + miembros + pagos + marcas de tiempo.
   L.groupSnapshot = function (S, gid) {
     var g = (S.groups || {})[gid] || {};
-    var members = {}, pays = {}, payTs = {}, dels = {};
+    var members = {}, pays = {}, payTs = {}, dels = {}, unp = {};
     Object.keys(S.members || {}).forEach(function (mid) {
       var m = S.members[mid];
       if (m && m.gid === gid) members[mid] = { id: m.id, gid: gid, name: m.name, phone: m.phone || '', createdAt: m.createdAt || 0, updatedAt: m.updatedAt || m.createdAt || 0 };
@@ -232,24 +232,26 @@
     Object.keys((S.payments || {})[gid] || {}).forEach(function (k) { pays[k] = S.payments[gid][k]; });
     Object.keys((S.payTs || {})[gid] || {}).forEach(function (k) { payTs[k] = S.payTs[gid][k]; });
     Object.keys((S.delMembers || {})[gid] || {}).forEach(function (k) { dels[k] = S.delMembers[gid][k]; });
+    Object.keys((S.unpays || {})[gid] || {}).forEach(function (k) { unp[k] = S.unpays[gid][k]; });
     return {
       meta: { id: gid, name: g.name || '', amount: g.amount || 0, currency: g.currency || 'RD$',
               freq: L.freqOf(g), cutDay: g.cutDay || 1, cutWeekday: (g.cutWeekday == null ? 0 : g.cutWeekday),
               createdAt: g.createdAt || 0, updatedAt: g.updatedAt || g.createdAt || 0 },
-      members: members, payments: pays, payTs: payTs, delMembers: dels
+      members: members, payments: pays, payTs: payTs, delMembers: dels, unpays: unp
     };
   };
 
   // Escribe una foto (local o fusionada) dentro del estado S.
   L.applySnapshot = function (S, gid, st) {
     S.groups = S.groups || {}; S.members = S.members || {};
-    S.payments = S.payments || {}; S.payTs = S.payTs || {}; S.delMembers = S.delMembers || {};
+    S.payments = S.payments || {}; S.payTs = S.payTs || {}; S.delMembers = S.delMembers || {}; S.unpays = S.unpays || {};
     S.groups[gid] = st.meta;
     Object.keys(S.members).forEach(function (mid) { if (S.members[mid] && S.members[mid].gid === gid) delete S.members[mid]; });
     Object.keys(st.members || {}).forEach(function (mid) { S.members[mid] = st.members[mid]; });
     S.payments[gid] = st.payments || {};
     S.payTs[gid] = st.payTs || {};
     S.delMembers[gid] = st.delMembers || {};
+    S.unpays[gid] = st.unpays || {};
   };
 
   function maxTs(a, b) { return Math.max(a || 0, b || 0); }
@@ -276,23 +278,33 @@
       if (m && dt >= (m.updatedAt || 0) && dt > 0) m = null; // borrado gana
       if (m) members[id] = m;
     });
-    var pays = {}, payTs = {};
+    var pays = {}, payTs = {}, unpays = {};
     var periods = {};
     Object.keys(local.payments || {}).forEach(function (k) { periods[k] = 1; });
     Object.keys(remote.payments || {}).forEach(function (k) { periods[k] = 1; });
+    Object.keys(local.unpays || {}).forEach(function (k) { periods[k] = 1; });
+    Object.keys(remote.unpays || {}).forEach(function (k) { periods[k] = 1; });
     Object.keys(periods).forEach(function (k) {
-      var lt = (local.payTs || {})[k] || 0, rt = (remote.payTs || {})[k] || 0;
-      if (rt > lt) { pays[k] = remote.payments[k]; payTs[k] = rt; }
-      else if (lt > rt) { pays[k] = local.payments[k]; payTs[k] = lt; }
-      else {
-        // mismo momento: unión por miembro (gana el más reciente)
-        var u = {}, lp = local.payments[k] || {}, rp = remote.payments[k] || {};
-        Object.keys(lp).forEach(function (mid) { u[mid] = lp[mid]; });
-        Object.keys(rp).forEach(function (mid) { u[mid] = maxTs(u[mid], rp[mid]); });
-        pays[k] = u; payTs[k] = lt;
-      }
+      // Fusión por miembro: cada "pagó" y cada "deshacer" tiene su hora.
+      // Gana lo más reciente por miembro, así dos teléfonos pueden marcar
+      // a la vez sin borrarse entre sí.
+      var lp = (local.payments || {})[k] || {}, rp = (remote.payments || {})[k] || {};
+      var lu = (local.unpays || {})[k] || {}, ru = (remote.unpays || {})[k] || {};
+      var u = {}, uu = {}, mids = {}, maxts = 0;
+      [lp, rp, lu, ru].forEach(function (o) { Object.keys(o).forEach(function (mid) { mids[mid] = 1; }); });
+      Object.keys(mids).forEach(function (mid) {
+        var pts = maxTs(lp[mid], rp[mid]); // último "pagó"
+        var uts = maxTs(lu[mid], ru[mid]); // último "deshacer"
+        if (pts > uts) u[mid] = pts;
+        else if (uts > 0) uu[mid] = uts;
+        if (pts > maxts) maxts = pts;
+        if (uts > maxts) maxts = uts;
+      });
+      pays[k] = u;
+      if (Object.keys(uu).length) unpays[k] = uu; // no guardar períodos vacíos
+      payTs[k] = Math.max((local.payTs || {})[k] || 0, (remote.payTs || {})[k] || 0, maxts);
     });
-    var state = { meta: meta, members: members, payments: pays, payTs: payTs, delMembers: dels };
+    var state = { meta: meta, members: members, payments: pays, payTs: payTs, delMembers: dels, unpays: unpays };
     if (!changed && JSON.stringify(state) !== JSON.stringify(local)) changed = true;
     return { state: state, changed: changed };
   };
