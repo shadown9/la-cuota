@@ -107,6 +107,14 @@ body{
   font-size:17px;font-weight:600;min-height:54px;padding:14px 20px;cursor:pointer;width:100%;
 }
 .btn-block{display:block;width:100%;margin-top:14px}
+/* Barra inferior fija: la acción principal siempre visible */
+.homebar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;
+  padding:8px 22px calc(12px + env(safe-area-inset-bottom));
+  background:linear-gradient(to bottom, rgba(255,255,255,0), var(--bg) 45%)}
+.homebar .btn-block{margin-top:0}
+.homebar .btn-block + .btn-block{margin-top:8px}
+#v-home{padding-bottom:120px}
+#v-members{padding-bottom:180px}
 .btn-ghost{
   background:#fff;color:var(--ink);border:1px solid #d9d9de;border-radius:var(--radius);
   font-size:16px;font-weight:600;min-height:52px;padding:12px 18px;cursor:pointer;width:100%;
