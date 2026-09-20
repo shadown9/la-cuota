@@ -233,3 +233,12 @@ input:focus{border-bottom-color:var(--ink)}
 @media (min-width:520px){
   .view{padding-left:28px;padding-right:28px}
 }
+
+/* Reparación de arranque: jamás pantalla en blanco */
+#bootFail[hidden]{display:none}
+#bootFail{position:fixed;inset:0;z-index:200;background:#fff;
+  display:flex;align-items:center;justify-content:center;padding:24px}
+.bootfail-card{max-width:380px;text-align:center}
+.bootfail-card h2{font-size:22px;margin:0 0 12px}
+.bootfail-card p{color:#555;font-size:15px;line-height:1.5}
+.bootfail-card .fine{margin-top:16px;font-size:13px}

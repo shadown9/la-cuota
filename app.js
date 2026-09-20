@@ -74,6 +74,10 @@ function nubeUnwatch(){ if(nubeUnsub){ try{ nubeUnsub(); }catch(e){} nubeUnsub=n
 
 /* ---------- utilidades ---------- */
 function $(id){ return document.getElementById(id); }
+/* on(): como addEventListener pero tolerante — si el HTML en caché es más
+   viejo que el JS y el elemento no existe, se ignora en vez de tumbar
+   la app entera con una pantalla en blanco. */
+function on(id, ev, fn){ var el=$(id); if(el) el.addEventListener(ev, fn); return el; }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function initials(name){ var p=String(name||'?').trim().split(/\s+/); return (p[0][0]+(p[1]?p[1][0]:'')).toUpperCase(); }
@@ -83,6 +87,39 @@ function toast(msg){
   var t=$('toast'); t.textContent=msg; t.hidden=false;
   clearTimeout(toastT); toastT=setTimeout(function(){ t.hidden=true; }, 2600);
 }
+
+/* ---------- NOTIFICACIONES CON EL LOGO DE LA APP ----------
+   La app instalada pide ella misma el permiso y avisa con
+   registration.showNotification: la notificación llega con el nombre
+   y el logo de La Cuota, como una notificación normal del teléfono,
+   no como un aviso genérico de Chrome. */
+function notifLista(){ return ('Notification' in window) && ('serviceWorker' in navigator); }
+function pedirPermisoNotif(cb){
+  /* Llamar dentro del toque del usuario: la app pide el permiso ella misma. */
+  try{
+    if(!notifLista()){ if(cb)cb(false); return; }
+    if(Notification.permission==='granted'){ if(cb)cb(true); return; }
+    if(Notification.permission==='denied'){ if(cb)cb(false); return; }
+    Notification.requestPermission().then(function(p){ if(cb)cb(p==='granted'); }).catch(function(){ if(cb)cb(false); });
+  }catch(e){ if(cb)cb(false); }
+}
+function avisarConLogo(titulo, cuerpo){
+  /* Aviso del sistema con el logo de La Cuota. Si no hay permiso o no se
+     puede, quien llama ya mostró el toast dentro de la app. */
+  try{
+    if(!notifLista() || Notification.permission!=='granted') return;
+    navigator.serviceWorker.ready.then(function(reg){
+      reg.showNotification(titulo, {
+        body: cuerpo,
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-192.png',
+        tag: 'lacuota-aviso'
+      });
+    }).catch(function(){});
+  }catch(e){}
+}
+/* Expuesto para diagnóstico y pruebas (no afecta la app) */
+window.__lacuotaNotif = { pedir: pedirPermisoNotif, avisar: avisarConLogo };
 
 /* Comparte con el menú del teléfono (WhatsApp, Telegram, etc.); si no se puede, copia. */
 function shareText(txt, title, copyMsg){
@@ -120,9 +157,10 @@ function trialDaysLeft(){
 function locked(){ return S.trialStart>0 && trialDaysLeft()<=0 && !S.payActive; }
 
 /* ---------- navegación ---------- */
-var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly'];
+var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly','v-legal'];
 function show(id){
-  VIEWS.forEach(function(v){ $(v).hidden = (v!==id); });
+  VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = (v!==id); });
+  var cur=$(id); if(cur) cur.hidden=false;
   window.scrollTo(0,0);
 }
 
@@ -131,14 +169,14 @@ function openSheet(html){
   $('sheet').innerHTML=html; $('sheetWrap').hidden=false;
 }
 function closeSheet(){ $('sheetWrap').hidden=true; $('sheet').innerHTML=''; }
-$('sheetBack').addEventListener('click', closeSheet);
+on('sheetBack', 'click', closeSheet);
 
 function showTextSheet(txt){
   openSheet('<h3>Cópialo aquí</h3>'+
     '<textarea id="sheetText" rows="8" style="width:100%;font-size:15px;padding:12px;border:1px solid #e9e9ec;border-radius:12px" readonly></textarea>'+
     '<button class="btn-primary btn-block" id="sheetCopy">Copiar</button>');
   $('sheetText').value=txt;
-  $('sheetCopy').addEventListener('click', function(){
+  on('sheetCopy', 'click', function(){
     $('sheetText').select();
     try{ document.execCommand('copy'); toast('Copiado.'); }catch(e){ toast('Selecciónalo y cópialo.'); }
     closeSheet();
@@ -301,6 +339,9 @@ function paintSegF(id, val, attr){
 }
 function obStep(n){
   show('v-ob');
+  /* Si ya tiene grupos (vino del inicio por error), puede volver atrás */
+  var bk=$('obBack');
+  if(bk) bk.hidden = !(S.groups && Object.keys(S.groups).length>0);
   var dots=$('obDots'); dots.innerHTML='';
   for(var i=0;i<obSteps.length;i++){ var s=document.createElement('span'); if(i===n)s.className='on'; dots.appendChild(s); }
   var step=obSteps[n], q=$('obQ'), f=$('obField'), nx=$('obNext');
@@ -453,7 +494,7 @@ function editMember(id){
     '<input id="edName" type="text" maxlength="40" placeholder="Nombre" value="'+esc(m.name)+'">'+
     '<input id="edPhone" type="tel" maxlength="20" placeholder="Teléfono (con código país)" inputmode="tel" value="'+esc(m.phone||'')+'">'+
     '<button class="btn-primary btn-block" id="edSave">Guardar cambios</button>');
-  $('edSave').addEventListener('click', function(){
+  on('edSave', 'click', function(){
     var n=$('edName').value.trim();
     if(!n){ toast('El nombre no puede quedar vacío.'); return; }
     m.name=n; m.phone=L.normPhone($('edPhone').value.trim()); m.updatedAt=Date.now();
@@ -679,7 +720,7 @@ function pagoOk(){
   };
   show('v-pagook');
 }
-$('pagoOkGo').addEventListener('click', renderHome);
+on('pagoOkGo', 'click', renderHome);
 
 /* ---------- LEGAL (discreto: solo enlaces en el pie) ---------- */
 var LEGAL = {
@@ -725,7 +766,7 @@ function showLegal(which){
   $('legalBody').innerHTML = L.h;
   show('v-legal');
 }
-$('legalBack').addEventListener('click', function(){
+on('legalBack', 'click', function(){
   if(history.length>1){ history.back(); } else { setHash(''); renderHome(); }
 });
 
@@ -748,11 +789,11 @@ function shareSheet(){
   openSheet('<h3>Compartir</h3>'+
     '<button class="sopt" id="shRo">👥&nbsp; Copiar enlace de miembros <span style="color:var(--muted);font-size:14px">(solo ven)</span></button>'+
     '<button class="sopt" id="shEd">🔑&nbsp; Copiar enlace de tesorero <span style="color:var(--muted);font-size:14px">(tu respaldo · guárdalo)</span></button>');
-  $('shRo').addEventListener('click', function(){
+  on('shRo', 'click', function(){
     shareLink(roLink, 'La Cuota — enlace de miembros', 'Enlace copiado. Mándalo a tus miembros.');
     closeSheet();
   });
-  $('shEd').addEventListener('click', function(){
+  on('shEd', 'click', function(){
     shareLink(edLink, 'La Cuota — enlace de tesorero', 'Enlace copiado. Guárdalo: con él recuperas tu grupo si cambias de teléfono o borras datos.');
     closeSheet();
   });
@@ -790,6 +831,7 @@ function showReadonly(payload){
 
 /* ---------- reporte PDF (vía impresión) ---------- */
 function downloadPDF(){
+  pedirPermisoNotif(); /* la app pide el permiso en el toque, si hace falta */
   var g=S.groups[curGid]; if(!g) return;
   if(!window.jspdf){ toast('No se pudo generar el PDF.'); return; }
   var mems=membersOf(curGid);
@@ -846,10 +888,12 @@ function downloadPDF(){
   var fname=('LaCuota-'+g.name+'-'+curMonth).replace(/[^\w áéíóúñü-]+/gi,'').slice(0,60)+'.pdf';
   doc.save(fname);
   toast('PDF descargado.');
+  avisarConLogo('La Cuota', 'Reporte en PDF listo: '+g.name+'.');
 }
 
 /* ---------- CSV ---------- */
 function exportCSV(){
+  pedirPermisoNotif(); /* la app pide el permiso en el toque, si hace falta */
   var g=S.groups[curGid]; if(!g) return;
   var csv=L.buildCSV(g, membersOf(curGid), S.payments[curGid]||{});
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
@@ -859,6 +903,7 @@ function exportCSV(){
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
   toast('Historial descargado.');
+  avisarConLogo('La Cuota', 'Historial descargado: '+g.name+'.');
 }
 
 /* ---------- menú ••• ---------- */
@@ -871,46 +916,46 @@ function moreSheet(){
     '<button class="sopt" id="moCsv">⬇&nbsp; Descargar historial (CSV)</button>'+
     '<button class="sopt" id="moSet">⚙️&nbsp; Ajustes del grupo</button>'+
     '<button class="sopt" id="moSub">💳&nbsp; Administrar suscripción</button>');
-  $('moMem').addEventListener('click', function(){ closeSheet(); openMembers(); });
-  $('moShare').addEventListener('click', function(){ closeSheet(); shareSheet(); });
-  $('moHist').addEventListener('click', function(){ closeSheet(); openHistory(); });
-  $('moPdf').addEventListener('click', function(){ closeSheet(); downloadPDF(); });
-  $('moCsv').addEventListener('click', function(){ closeSheet(); exportCSV(); });
-  $('moSet').addEventListener('click', function(){ closeSheet(); openSettings(); });
-  $('moSub').addEventListener('click', function(){ closeSheet(); manageSub(); });
+  on('moMem', 'click', function(){ closeSheet(); openMembers(); });
+  on('moShare', 'click', function(){ closeSheet(); shareSheet(); });
+  on('moHist', 'click', function(){ closeSheet(); openHistory(); });
+  on('moPdf', 'click', function(){ closeSheet(); downloadPDF(); });
+  on('moCsv', 'click', function(){ closeSheet(); exportCSV(); });
+  on('moSet', 'click', function(){ closeSheet(); openSettings(); });
+  on('moSub', 'click', function(){ closeSheet(); manageSub(); });
 }
 
 /* ---------- eventos ---------- */
-$('btnNewGroup').addEventListener('click', function(){ locked()?renderPay():startOnboarding(); });
-$('btnFaqHome').addEventListener('click', function(){ renderFaq('home'); });
-$('btnBack').addEventListener('click', renderHome);
-$('btnMore').addEventListener('click', moreSheet);
-$('mPrev').addEventListener('click', function(){ var g=S.groups[curGid]; curMonth=L.prevPeriod(curMonth, g); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
-$('mNext').addEventListener('click', function(){ var g=S.groups[curGid]; curMonth=L.nextPeriod(curMonth, g); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
+on('btnNewGroup', 'click', function(){ locked()?renderPay():startOnboarding(); });
+on('btnFaqHome', 'click', function(){ renderFaq('home'); });
+on('btnBack', 'click', renderHome);
+on('btnMore', 'click', moreSheet);
+on('mPrev', 'click', function(){ var g=S.groups[curGid]; curMonth=L.prevPeriod(curMonth, g); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
+on('mNext', 'click', function(){ var g=S.groups[curGid]; curMonth=L.nextPeriod(curMonth, g); S.ui['m_'+curGid]=curMonth; save(); renderMonth(); });
 
-$('btnRemindAll').addEventListener('click', function(){
+on('btnRemindAll', 'click', function(){
   var g=S.groups[curGid];
   var sum=sumFor(curGid, curMonth);
   if(!sum.owed.length){ toast('Todos están al día. 🎉'); return; }
   shareText(L.debtorsText(g, sum, L.periodLabel(curMonth, g)), g.name,
     'Texto copiado. Pégalo en tu grupo de WhatsApp.');
 });
-$('btnSummary').addEventListener('click', function(){
+on('btnSummary', 'click', function(){
   var g=S.groups[curGid];
   var sum=sumFor(curGid, curMonth);
   shareText(L.summaryText(g, sum, L.periodLabel(curMonth, g)), g.name,
     'Resumen copiado. Compártelo donde quieras.');
 });
 
-$('memBack').addEventListener('click', renderGroup);
-$('memAdd').addEventListener('click', addMember);
-$('memDone').addEventListener('click', renderGroup);
-$('histBack').addEventListener('click', renderGroup);
-$('pdBack').addEventListener('click', openHistory);
-$('setBack').addEventListener('click', renderGroup);
-$('setSave').addEventListener('click', saveSettings);
-$('setManageSub').addEventListener('click', manageSub);
-$('setDelete').addEventListener('click', function(){
+on('memBack', 'click', renderGroup);
+on('memAdd', 'click', addMember);
+on('memDone', 'click', renderGroup);
+on('histBack', 'click', renderGroup);
+on('pdBack', 'click', openHistory);
+on('setBack', 'click', renderGroup);
+on('setSave', 'click', saveSettings);
+on('setManageSub', 'click', manageSub);
+on('setDelete', 'click', function(){
   var b=$('setDelete'), g=S.groups[curGid];
   if(b.dataset.confirm==='1'){
     Object.keys(S.members).forEach(function(k){ if(S.members[k].gid===curGid) delete S.members[k]; });
@@ -920,13 +965,13 @@ $('setDelete').addEventListener('click', function(){
     renderHome(); toast('Grupo eliminado.');
   }else{ b.dataset.confirm='1'; b.textContent='Toca de nuevo para eliminar'; }
 });
-$('payMonthly').addEventListener('click', function(){ payGo('monthly'); });
-$('payYearly').addEventListener('click', function(){ payGo('yearly'); });
-$('payViewData').addEventListener('click', renderHome);
-$('payManageSub').addEventListener('click', manageSub);
-$('pagoOkManage').addEventListener('click', manageSub);
-$('btnManageSub').addEventListener('click', manageSub);
-$('roCta').addEventListener('click', function(){ setHash(''); locked()?renderPay():startOnboarding(); });
+on('payMonthly', 'click', function(){ payGo('monthly'); });
+on('payYearly', 'click', function(){ payGo('yearly'); });
+on('payViewData', 'click', renderHome);
+on('payManageSub', 'click', manageSub);
+on('pagoOkManage', 'click', manageSub);
+on('btnManageSub', 'click', manageSub);
+on('roCta', 'click', function(){ setHash(''); locked()?renderPay():startOnboarding(); });
 
 /* Trae un grupo de la nube al teléfono (también sirve para recuperar
    un grupo después de borrar los datos del navegador) */
@@ -949,7 +994,7 @@ function recoverSheet(){
     '<p class="fine">Pega el enlace de tesorero que guardaste y traemos tu grupo de vuelta de la nube.</p>'+
     '<input type="text" id="rcLink" placeholder="Pega aquí tu enlace" autocomplete="off" autocapitalize="off">'+
     '<button class="btn-primary btn-block" id="rcGo" style="margin-top:12px">Recuperar</button>');
-  $('rcGo').addEventListener('click', function(){
+  on('rcGo', 'click', function(){
     var raw=( $('rcLink').value||'').trim();
     var m=raw.match(/#\/g\/([A-Za-z0-9_-]+)/);
     var gid=m?m[1]:null;
@@ -963,8 +1008,9 @@ function recoverSheet(){
     });
   });
 }
-$('obRecover').addEventListener('click', recoverSheet);
-$('btnRecoverHome').addEventListener('click', recoverSheet);
+on('obRecover', 'click', recoverSheet);
+on('obBack', 'click', function(){ setHash(''); renderHome(); });
+on('btnRecoverHome', 'click', recoverSheet);
 
 /* ---------- arranque ---------- */
 /* Los enlaces internos (#/terminos, #/privacidad) cambian el hash sin recargar.
@@ -1016,7 +1062,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 33;
+var APP_V = 34;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1041,9 +1087,45 @@ document.addEventListener('visibilitychange', function(){
   if(!document.hidden) checkAppUpdate();
 });
 setInterval(checkAppUpdate, 5*60*1000);
-route();
-paintVer();
-checkAppUpdate();
+/* Si el arranque falla por cualquier motivo, jamás pantalla en blanco:
+   se muestra la reparación (los datos siguen guardados) y se pide la
+   versión nueva al service worker. */
+function bootFail(){
+  try{
+    if(window.__lacuotaBooted) return;
+    var ov=$('bootFail'); if(ov) ov.hidden=false;
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.getRegistration().then(function(reg){
+        if(reg) reg.update().catch(function(){});
+      }).catch(function(){});
+    }
+  }catch(e){}
+}
+try{
+  /* HTML más viejo que el JS: pedir la versión nueva una sola vez por
+     sesión en vez de arrancar degradado en silencio. */
+  if(!$('appVer') || !$('setManageSub')){
+    if(!sessionStorage.getItem('lacuota_stale')){
+      sessionStorage.setItem('lacuota_stale','1');
+      if('serviceWorker' in navigator){
+        var staleDone=false;
+        navigator.serviceWorker.getRegistration().then(function(reg){
+          if(reg) reg.update().catch(function(){});
+        }).catch(function(){});
+        /* Si el SW nuevo toma el control, el controllerchange ya recarga
+           solo con los archivos nuevos; esto es solo el plan B. */
+        navigator.serviceWorker.addEventListener('controllerchange', function(){ staleDone=true; });
+        setTimeout(function(){ if(!staleDone) location.reload(); }, 8000);
+      }else{
+        setTimeout(function(){ location.reload(); }, 2000);
+      }
+    }
+  }
+  route();
+  paintVer();
+  checkAppUpdate();
+  window.__lacuotaBooted = true;
+}catch(err){ bootFail(); }
 /* Re-verificar la suscripción en silencio al arrancar: si Stripe dice que
    ya no está activa, se desactiva sola (nadie la mantiene a mano). */
 if(S.payActive && S.payEmail){

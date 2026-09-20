@@ -14,6 +14,9 @@ sed -i "s/var APP_V = [0-9]*;/var APP_V = $V;/" app.js
 printf '{"v":%s}' "$V" > version.json
 echo "--- pruebas ---"
 node test_logica.js | tail -1
+test ${PIPESTATUS[0]} -eq 0 || { echo "FALLARON pruebas de lógica: no se publica"; exit 1; }
+node test_boot.js | tail -3
+test ${PIPESTATUS[0]} -eq 0 || { echo "FALLARON pruebas de arranque: no se publica"; exit 1; }
 echo "--- publicando v$V ---"
 git add -A && git commit -q -m "v$V: $MSG" && git push -q
 git log --oneline -1

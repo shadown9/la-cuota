@@ -1,5 +1,5 @@
 /* La Cuota — service worker: funciona sin conexión */
-var CACHE = 'lacuota-v33';
+var CACHE = 'lacuota-v34';
 var FILES = [
   './',
   './index.html',
@@ -14,13 +14,18 @@ var FILES = [
   './icons/icon-maskable-192.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
-  './icons/favicon-32.png'
+  './icons/favicon-32.png',
+  './recuperar.html'
 ];
 
 self.addEventListener('install', function(e){
   e.waitUntil(
-    caches.open(CACHE).then(function(c){ return c.addAll(FILES); })
-      .then(function(){ return self.skipWaiting(); })
+    caches.open(CACHE).then(function(c){
+      /* cache:'reload': la precarga IGNORA la caché HTTP del navegador.
+         Sin esto, el teléfono puede guardar un index.html viejo junto a
+         un app.js nuevo (mezcla de versiones) y la app no arranca. */
+      return c.addAll(FILES.map(function(u){ return new Request(u, {cache:'reload'}); }));
+    }).then(function(){ return self.skipWaiting(); })
   );
 });
 
@@ -30,6 +35,19 @@ self.addEventListener('activate', function(e){
       return Promise.all(keys.filter(function(k){ return k !== CACHE; })
         .map(function(k){ return caches.delete(k); }));
     }).then(function(){ return self.clients.claim(); })
+  );
+});
+
+/* Tocar la notificación abre la app (como una notificación normal) */
+self.addEventListener('notificationclick', function(e){
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({type:'window', includeUncontrolled:true}).then(function(list){
+      for(var i=0;i<list.length;i++){
+        if(list[i].url.indexOf(self.location.origin)===0) return list[i].focus();
+      }
+      return clients.openWindow('./');
+    })
   );
 });
 

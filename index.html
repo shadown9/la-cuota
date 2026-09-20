@@ -13,6 +13,51 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<!-- Guardián de arranque: si la app no logra iniciar, muestra reparación
+     en vez de una pantalla en blanco. No depende de app.js. -->
+<div id="bootFail" hidden>
+  <div class="bootfail-card">
+    <h2>La aplicación necesita actualizarse</h2>
+    <p>Tus datos siguen guardados. Toca el botón para repararla.</p>
+    <button id="bootRepair" class="btn-primary btn-block">Reparar la aplicación</button>
+    <p class="fine"><a href="recuperar.html">Abrir página de recuperación</a></p>
+  </div>
+</div>
+<script>
+(function(){
+  function show(){ var ov=document.getElementById('bootFail'); if(ov) ov.hidden=false; }
+  window.addEventListener('error', function(e){
+    if(window.__lacuotaBooted) return;
+    var t=e.target;
+    if(t && t!==window && t.tagName) return; /* recurso (icono, etc.): no fatal */
+    show();
+  }, true);
+  document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(function(){ if(!window.__lacuotaBooted) show(); }, 8000);
+    var b=document.getElementById('bootRepair');
+    if(b) b.addEventListener('click', function(){
+      b.disabled=true; b.textContent='Reparando…';
+      var done=function(){ location.href='./?reparada=1'; };
+      try{
+        var ps=[];
+        if('serviceWorker' in navigator){
+          ps.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+            return Promise.all(rs.map(function(r){ return r.unregister(); }));
+          }).catch(function(){}));
+        }
+        if(window.caches){
+          ps.push(caches.keys().then(function(ks){
+            return Promise.all(ks.map(function(k){ return caches.delete(k); }));
+          }).catch(function(){}));
+        }
+        /* localStorage NO se toca: los datos del grupo siguen guardados. */
+        Promise.all(ps).then(done, done);
+        setTimeout(done, 6000);
+      }catch(e){ done(); }
+    });
+  });
+})();
+</script>
 <div id="app">
 
   <!-- INICIO -->
@@ -67,6 +112,9 @@
 
   <!-- ONBOARDING -->
   <section id="v-ob" class="view" hidden>
+    <header class="top nav">
+      <button id="obBack" class="iconbtn" aria-label="Volver" hidden>‹</button>
+    </header>
     <div class="ob-dots" id="obDots"></div>
     <h1 id="obQ" class="ob-q"></h1>
     <div id="obField"></div>

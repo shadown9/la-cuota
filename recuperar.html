@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Recuperar La Cuota</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:#fff;color:#111;min-height:100vh;display:flex;align-items:center;
+    justify-content:center;padding:24px}
+  .card{max-width:400px;width:100%;text-align:center}
+  .logo{width:72px;height:72px;border-radius:18px;margin:0 auto 16px;
+    background:#111;color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:28px;font-weight:800}
+  h1{font-size:22px;margin:0 0 10px}
+  p{color:#555;font-size:15px;line-height:1.55;margin:0 0 14px}
+  .ok{color:#0a7d2c;font-weight:600}
+  .err{color:#b3261e;font-weight:600}
+  button{width:100%;padding:15px;border:0;border-radius:14px;font-size:17px;
+    font-weight:700;background:#111;color:#fff;cursor:pointer;margin-top:6px}
+  button:disabled{opacity:.5}
+  .pasos{text-align:left;background:#f6f6f8;border-radius:14px;padding:14px 16px;
+    margin:14px 0;font-size:14px;color:#333}
+  .pasos div{margin:6px 0}
+  a{color:#111}
+  .fine{font-size:13px;color:#888;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">LC</div>
+  <h1>Recuperar La Cuota</h1>
+  <p>Esta página repara la aplicación <strong>sin borrar tus datos</strong>.
+     Tus grupos y pagos están guardados en este teléfono y no se tocan.</p>
+  <div class="pasos" id="pasos" hidden></div>
+  <button id="go">Reparar ahora</button>
+  <p class="fine" id="estado"></p>
+  <p class="fine"><a href="./">Volver a La Cuota</a></p>
+</div>
+<script>
+(function(){
+  var pasos=document.getElementById('pasos');
+  var estado=document.getElementById('estado');
+  var btn=document.getElementById('go');
+  function paso(t, ok){
+    pasos.hidden=false;
+    var d=document.createElement('div');
+    d.textContent=(ok===false?'✗ ':'✓ ')+t;
+    if(ok===false) d.className='err';
+    pasos.appendChild(d);
+  }
+  btn.addEventListener('click', function(){
+    btn.disabled=true; btn.textContent='Reparando…';
+    estado.textContent='';
+    var cadena=Promise.resolve();
+    /* 1. Borrar solo la caché de archivos (NO los datos) */
+    cadena=cadena.then(function(){
+      if(!window.caches){ paso('Caché no disponible en este navegador', false); return; }
+      return caches.keys().then(function(ks){
+        return Promise.all(ks.map(function(k){ return caches.delete(k); }));
+      }).then(function(){ paso('Archivos temporales borrados'); });
+    });
+    /* 2. Quitar el service worker viejo */
+    cadena=cadena.then(function(){
+      if(!('serviceWorker' in navigator)){ paso('Sin service worker', true); return; }
+      return navigator.serviceWorker.getRegistrations().then(function(rs){
+        return Promise.all(rs.map(function(r){ return r.unregister(); }));
+      }).then(function(){ paso('Actualizador viejo retirado'); });
+    });
+    cadena.then(function(){
+      paso('Tus grupos y pagos siguen guardados', true);
+      estado.innerHTML='<span class="ok">Listo. Abriendo La Cuota actualizada…</span>';
+      setTimeout(function(){ location.href='./?reparada=1'; }, 1200);
+    }).catch(function(){
+      estado.innerHTML='<span class="err">Algo falló. Cierra la app del todo y vuelve a abrir esta página.</span>';
+      btn.disabled=false; btn.textContent='Intentar de nuevo';
+    });
+  });
+})();
+</script>
+</body>
+</html>
