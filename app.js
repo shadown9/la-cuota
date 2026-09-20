@@ -232,7 +232,7 @@ function showVerify(){
 }
 /* Envía el token de Google al servidor, que verifica la firma y dice si
    esta cuenta ya usó su prueba (una cuenta = una prueba, para siempre). */
-function cuentaVerificar(){
+function cuentaVerificar(userObj){
   var m = document.getElementById('verMsg');
   var b = document.getElementById('verGoogle');
   function msg(t){ if(m){ m.hidden=false; m.textContent=t; } if(b) b.disabled=false; }
@@ -247,10 +247,17 @@ function cuentaVerificar(){
     msg('No hay conexión para verificar. Revisa tu internet e inténtalo de nuevo.');
     return;
   }
-  FB_AUTH.token().then(function(existing){
-    if(existing) return existing;
-    return FB_AUTH.signIn().then(function(){ return null; });
-  }).then(function(idToken){
+  /* Al volver del redirect de Google, currentUser puede tardar en estar
+     listo: si ya tenemos el usuario del redirect, usarlo directo para
+     evitar rebotar a Google otra vez. */
+  function takeToken(){
+    if(userObj && userObj.getIdToken) return userObj.getIdToken();
+    return FB_AUTH.token().then(function(existing){
+      if(existing) return existing;
+      return FB_AUTH.signIn().then(function(){ return null; });
+    });
+  }
+  takeToken().then(function(idToken){
     if(!idToken) return; // viene de un redirect: el resultado llega al reanudar
     return fetch(TRIAL_URL, {
       method:'POST', headers:{'content-type':'application/json'},
@@ -294,7 +301,7 @@ function cuentaVerificarRedirect(){
       var gid = null;
       try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
       if(gid) verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
-      cuentaVerificar();
+      cuentaVerificar(result.user);
     }
   }).catch(function(){});
 }
@@ -893,7 +900,9 @@ window.__lacuotaSub = {
   /* Verificación con Google (una prueba por cuenta) */
   verificar: function(){ verNext=null; showVerify(); },
   necesitaVerificar: function(){ return L.needsVerify(S); },
-  cuenta: function(){ return {googleOk:!!S.googleOk, trialStart:S.trialStart||0}; }
+  cuenta: function(){ return {googleOk:!!S.googleOk, trialStart:S.trialStart||0}; },
+  redir: function(){ cuentaVerificarRedirect(); },
+  setAuth: function(a){ FB_AUTH = a; },
 };
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
@@ -1287,7 +1296,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 41;
+var APP_V = 42;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

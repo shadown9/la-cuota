@@ -538,6 +538,35 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       a.__els['verMsg'].textContent);
   }catch(e){ threw = e; }
   t('verificación: sin excepción', !threw, threw && threw.message);
+  /* 15d: al volver del redirect de Google, completa la verificación con el
+     usuario del redirect (currentUser puede no estar listo aún) y NO rebota
+     a Google otra vez. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    var signInCalls = 0, fetchCalls = [];
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      user: function(){ return null; }, /* el peligro: currentUser aún no listo */
+      signIn: function(){ signInCalls++; return Promise.resolve(null); },
+      redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOKEN123'); }}}); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.fetch = function(url, opts){
+      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:999, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.redir();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('redirect: verifica y guarda la prueba', st.googleOk===true && st.trialStart===999, JSON.stringify(st));
+      t('redirect: llamó a /trial con el token del redirect',
+        fetchCalls.length===1 && /\/trial$/.test(fetchCalls[0].url) && /TOKEN123/.test(fetchCalls[0].body),
+        fetchCalls.length+' llamadas');
+      t('redirect: NO rebotó a Google (sin bucle)', signInCalls===0, signInCalls+' signIn');
+      resolve();
+    }, 60);
+  }));
 })();
 
 Promise.all(asyncTests).then(function(){
