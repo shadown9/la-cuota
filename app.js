@@ -596,13 +596,13 @@ function shareSheet(){
   var edLink=baseUrl()+'#/g/'+g.id;
   openSheet('<h3>Compartir</h3>'+
     '<button class="sopt" id="shRo">👥&nbsp; Copiar enlace de miembros <span style="color:var(--muted);font-size:14px">(solo ven)</span></button>'+
-    '<button class="sopt" id="shEd">🔑&nbsp; Copiar enlace de tesorero <span style="color:var(--muted);font-size:14px">(para ti)</span></button>');
+    '<button class="sopt" id="shEd">🔑&nbsp; Copiar enlace de tesorero <span style="color:var(--muted);font-size:14px">(tu respaldo · guárdalo)</span></button>');
   $('shRo').addEventListener('click', function(){
     shareLink(roLink, 'La Cuota — enlace de miembros', 'Enlace copiado. Mándalo a tus miembros.');
     closeSheet();
   });
   $('shEd').addEventListener('click', function(){
-    shareLink(edLink, 'La Cuota — enlace de tesorero', 'Enlace copiado. Ábrelo en tu teléfono.');
+    shareLink(edLink, 'La Cuota — enlace de tesorero', 'Enlace copiado. Guárdalo: con él recuperas tu grupo si cambias de teléfono o borras datos.');
     closeSheet();
   });
 }
@@ -770,6 +770,40 @@ $('payMonthly').addEventListener('click', function(){ paySoon('monthly'); });
 $('payYearly').addEventListener('click', function(){ paySoon('yearly'); });
 $('payViewData').addEventListener('click', renderHome);
 $('roCta').addEventListener('click', function(){ location.hash=''; locked()?renderPay():startOnboarding(); });
+
+/* Trae un grupo de la nube al teléfono (también sirve para recuperar
+   un grupo después de borrar los datos del navegador) */
+function fetchGroupToLocal(gid, cb){
+  if(S.groups[gid]){ cb(true); return; }
+  if(!nubeLista()){ cb(false); return; }
+  CuotaNube.obtener(gid).then(function(remote){
+    if(remote && remote.meta){
+      L.applySnapshot(S, gid, remote); S.onboarded=true; save(); cb(true);
+    }else cb(false);
+  });
+}
+
+function recoverSheet(){
+  openSheet('<h3>Recuperar grupo</h3>'+
+    '<p class="fine">Pega el enlace de tesorero que guardaste y traemos tu grupo de vuelta de la nube.</p>'+
+    '<input type="text" id="rcLink" placeholder="Pega aquí tu enlace" autocomplete="off" autocapitalize="off">'+
+    '<button class="btn-primary btn-block" id="rcGo" style="margin-top:12px">Recuperar</button>');
+  $('rcGo').addEventListener('click', function(){
+    var raw=( $('rcLink').value||'').trim();
+    var m=raw.match(/#\/g\/([A-Za-z0-9_-]+)/);
+    var gid=m?m[1]:null;
+    if(!gid && /^[A-Za-z0-9_-]{5,}$/.test(raw)) gid=raw;
+    if(!gid){ toast('Ese enlace no parece válido.'); return; }
+    if(!nubeLista()){ toast('Sin conexión. Revisa tu internet.'); return; }
+    closeSheet(); toast('Buscando el grupo…');
+    fetchGroupToLocal(gid, function(ok){
+      if(ok){ toast('Grupo recuperado. 🎉'); location.hash=''; renderHome(); }
+      else toast('No encontramos ese grupo. Revisa el enlace.');
+    });
+  });
+}
+$('obRecover').addEventListener('click', recoverSheet);
+$('btnRecoverHome').addEventListener('click', recoverSheet);
 
 /* ---------- arranque ---------- */
 function route(){
