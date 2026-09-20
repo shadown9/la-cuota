@@ -10,11 +10,46 @@ var S = load();
 function load(){
   try{
     var raw = localStorage.getItem(KEY);
-    if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{}; return s; }
+    if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
+      s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; return s; }
   }catch(e){}
-  return {groups:{}, members:{}, payments:{}, onboarded:false, trialStart:0, payActive:false, notifyPay:false, ui:{}};
+  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, onboarded:false, trialStart:0, payActive:false, notifyPay:false, ui:{}};
 }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} nubePushSoon(); }
+
+/* ---------- NUBE ---------- */
+var nubeT=null, nubeUnsub=null;
+function nubeLista(){ return window.CuotaNube && CuotaNube.lista(); }
+function nubePushSoon(){
+  if(!nubeLista()) return;
+  clearTimeout(nubeT);
+  nubeT=setTimeout(nubePushAll, 2000);
+}
+function nubePushAll(){
+  if(!nubeLista()) return;
+  Object.keys(S.groups).forEach(function(gid){
+    CuotaNube.publicar(gid, L.groupSnapshot(S, gid));
+  });
+}
+function nubePull(gid, done){
+  if(!nubeLista()){ if(done)done(false); return; }
+  CuotaNube.obtener(gid).then(function(remote){
+    if(!remote || !remote.meta){ if(done)done(false); return; }
+    var m=L.mergeGroup(L.groupSnapshot(S, gid), remote);
+    if(m.changed){ L.applySnapshot(S, gid, m.state); save(); if(done)done(true); }
+    else if(done)done(false);
+  });
+}
+function nubeWatch(gid){
+  nubeUnwatch();
+  if(!nubeLista()) return;
+  nubeUnsub=CuotaNube.suscribir(gid, function(remote){
+    if(!remote || !remote.meta) return;
+    var m=L.mergeGroup(L.groupSnapshot(S, gid), remote);
+    if(m.changed){ L.applySnapshot(S, gid, m.state); save(); renderGroup(); }
+  });
+}
+function nubeUnwatch(){ if(nubeUnsub){ try{ nubeUnsub(); }catch(e){} nubeUnsub=null; } }
 
 /* ---------- utilidades ---------- */
 function $(id){ return document.getElementById(id); }
@@ -91,6 +126,7 @@ function showTextSheet(txt){
 
 /* ---------- INICIO ---------- */
 function renderHome(){
+  nubeUnwatch();
   show('v-home');
   var ids=Object.keys(S.groups);
   var list=$('groupList'); list.innerHTML='';
@@ -142,6 +178,8 @@ function openGroup(gid){
   curGid=gid;
   curMonth=S.ui['m_'+gid] || L.periodKey(new Date(), g);
   renderGroup();
+  nubePull(gid, function(changed){ if(changed && curGid===gid) renderGroup(); });
+  nubeWatch(gid);
 }
 
 function renderGroup(){
@@ -211,6 +249,8 @@ function togglePay(mid){
     p[mid]=Date.now();
     if (!S.trialStart){ S.trialStart=Date.now(); } // la prueba corre desde el primer pago
   }
+  S.payTs[curGid]=S.payTs[curGid]||{};
+  S.payTs[curGid][curMonth]=Date.now();
   save(); renderMonth();
 }
 
@@ -332,7 +372,7 @@ function finishOnboarding(){
           currency:obDraft.currency, freq:obDraft.freq,
           cutDay:parseInt(obDraft.cut,10)||5,
           cutWeekday:parseInt(obDraft.cutWeekday,10)||0,
-          createdAt:Date.now() };
+          createdAt:Date.now(), updatedAt:Date.now() };
   S.groups[g.id]=g; S.onboarded=true; save();
   toast('Grupo creado. Agrega a los miembros y toca Terminar.');
   openGroup(g.id);
@@ -365,7 +405,11 @@ function renderMemList(){
   list.querySelectorAll('[data-del]').forEach(function(b){
     b.addEventListener('click', function(){
       var m=S.members[b.getAttribute('data-del')];
-      if(b.dataset.confirm==='1'){ delete S.members[m.id]; save(); renderMemList(); toast(m.name+' eliminado.'); }
+      if(b.dataset.confirm==='1'){
+        S.delMembers=S.delMembers||{}; S.delMembers[curGid]=S.delMembers[curGid]||{};
+        S.delMembers[curGid][m.id]=Date.now();
+        delete S.members[m.id]; save(); renderMemList(); toast(m.name+' eliminado.');
+      }
       else{ b.dataset.confirm='1'; b.textContent='¿Sí?'; setTimeout(function(){ b.dataset.confirm=''; b.textContent='✕'; },2500); }
     });
   });
@@ -373,7 +417,7 @@ function renderMemList(){
 function addMember(){
   var name=$('memName').value.trim(), phone=$('memPhone').value.trim();
   if(!name){ toast('Escribe el nombre.'); return; }
-  var m={id:L.uid(), gid:curGid, name:name, phone:L.normPhone(phone), createdAt:Date.now()};
+  var m={id:L.uid(), gid:curGid, name:name, phone:L.normPhone(phone), createdAt:Date.now(), updatedAt:Date.now()};
   S.members[m.id]=m; save();
   $('memName').value=''; $('memPhone').value=''; $('memName').focus();
   renderMemList();
@@ -387,7 +431,7 @@ function editMember(id){
   $('edSave').addEventListener('click', function(){
     var n=$('edName').value.trim();
     if(!n){ toast('El nombre no puede quedar vacío.'); return; }
-    m.name=n; m.phone=L.normPhone($('edPhone').value.trim());
+    m.name=n; m.phone=L.normPhone($('edPhone').value.trim()); m.updatedAt=Date.now();
     save(); closeSheet(); renderMemList(); toast('Cambios guardados.');
   });
 }
@@ -483,7 +527,7 @@ function saveSettings(){
     var on=$('setWd').querySelector('button.on');
     g.cutWeekday=on?parseInt(on.getAttribute('data-w'),10):0;
   }
-  g.name=name; g.amount=amount; g.currency=cur;
+  g.name=name; g.amount=amount; g.currency=cur; g.updatedAt=Date.now();
   S.ui['m_'+curGid]=L.periodKey(new Date(), g); curMonth=S.ui['m_'+curGid];
   save(); renderGroup(); toast('Guardado.');
 }
@@ -683,7 +727,9 @@ $('setDelete').addEventListener('click', function(){
   var b=$('setDelete'), g=S.groups[curGid];
   if(b.dataset.confirm==='1'){
     Object.keys(S.members).forEach(function(k){ if(S.members[k].gid===curGid) delete S.members[k]; });
-    delete S.payments[curGid]; delete S.groups[curGid]; save();
+    var delGid=curGid;
+    delete S.payments[curGid]; delete S.payTs[curGid]; delete S.delMembers[curGid]; delete S.groups[curGid]; save();
+    if(nubeLista()) CuotaNube.borrar(delGid);
     renderHome(); toast('Grupo eliminado.');
   }else{ b.dataset.confirm='1'; b.textContent='Toca de nuevo para eliminar'; }
 });
@@ -699,6 +745,15 @@ function route(){
   if(h.indexOf('#/g/')===0){
     var gid=h.slice(4);
     if(S.groups[gid]){ openGroup(gid); return; }
+    if(nubeLista()){
+      toast('Buscando el grupo…');
+      CuotaNube.obtener(gid).then(function(remote){
+        if(remote && remote.meta){
+          L.applySnapshot(S, gid, remote); S.onboarded=true; save(); openGroup(gid);
+        }else{ toast('No se encontró ese grupo.'); renderHome(); }
+      });
+      return;
+    }
   }
   if(!S.onboarded && Object.keys(S.groups).length===0){ startOnboarding(); return; }
   renderHome();
@@ -709,4 +764,10 @@ if('serviceWorker' in navigator){
   });
 }
 route();
+/* Al arrancar: si hay nube, traer lo último de cada grupo en silencio */
+if(nubeLista()){
+  Object.keys(S.groups).forEach(function(gid){
+    nubePull(gid, function(changed){ if(changed && gid===curGid) renderGroup(); });
+  });
+}
 })();

@@ -106,5 +106,44 @@ var u1 = L.uid(), u2 = L.uid();
 t(u1 !== u2 && u1.length >= 8, 'uid únicos');
 t(L.token().length === 12, 'token 12 chars');
 
+/* --- sincronización --- */
+function mkS(){
+  return { groups:{g1:{id:'g1',name:'Junta',amount:25,currency:'RD$',freq:'semana',cutWeekday:0,createdAt:100,updatedAt:100}},
+    members:{m1:{id:'m1',gid:'g1',name:'Ana',phone:'1',createdAt:100,updatedAt:100}},
+    payments:{g1:{s1:{m1:50}}}, payTs:{g1:{s1:60}}, delMembers:{}, ui:{} };
+}
+var s1=mkS(), snap1=L.groupSnapshot(s1,'g1');
+eq(snap1.meta.name, 'Junta', 'snapshot: meta');
+eq(snap1.members.m1.name, 'Ana', 'snapshot: miembro');
+eq(snap1.payTs.s1, 60, 'snapshot: payTs');
+var mNone=L.mergeGroup(snap1, null);
+t(mNone.changed===false, 'merge: sin remoto no cambia');
+var mNew=L.mergeGroup(null, snap1);
+t(mNew.changed===true && mNew.state.meta.name==='Junta', 'merge: sin local toma remoto');
+// remoto más nuevo en meta gana
+var s2=mkS(); s2.groups.g1.name='Junta Nueva'; s2.groups.g1.updatedAt=200;
+var mMeta=L.mergeGroup(snap1, L.groupSnapshot(s2,'g1'));
+t(mMeta.changed && mMeta.state.meta.name==='Junta Nueva', 'merge: meta remota más nueva gana');
+// local más nuevo en meta gana
+var mMeta2=L.mergeGroup(L.groupSnapshot(s2,'g1'), snap1);
+t(mMeta2.state.meta.name==='Junta Nueva' && !mMeta2.changed, 'merge: meta local más nueva se conserva');
+// miembros: unión, gana el más reciente por miembro
+var s3=mkS(); s3.members.m1.name='Ana María'; s3.members.m1.updatedAt=300;
+s3.members.m2={id:'m2',gid:'g1',name:'Luis',phone:'',createdAt:300,updatedAt:300};
+var mMem=L.mergeGroup(snap1, L.groupSnapshot(s3,'g1'));
+t(mMem.state.members.m1.name==='Ana María' && mMem.state.members.m2.name==='Luis', 'merge: miembros se unen y gana el reciente');
+// borrado (tombstone) gana sobre edición vieja
+var s4=mkS(); s4.delMembers={g1:{m1:400}}; delete s4.members.m1;
+var mDel=L.mergeGroup(snap1, L.groupSnapshot(s4,'g1'));
+t(!mDel.state.members.m1 && mDel.state.delMembers.m1===400, 'merge: borrado remoto elimina miembro');
+// pagos: gana el período con payTs mayor
+var s5=mkS(); s5.payments={g1:{s1:{}}}; s5.payTs={g1:{s1:500}};
+var mPay=L.mergeGroup(snap1, L.groupSnapshot(s5,'g1'));
+t(Object.keys(mPay.state.payments.s1).length===0, 'merge: pagos remotos más nuevos ganan');
+// applySnapshot escribe todo en S
+var s6={groups:{},members:{m9:{id:'m9',gid:'g1',name:'Viejo'}},payments:{},payTs:{},delMembers:{},ui:{}};
+L.applySnapshot(s6,'g1',snap1);
+t(s6.groups.g1.name==='Junta' && s6.members.m1 && !s6.members.m9 && s6.payments.g1.s1.m1===50, 'applySnapshot escribe estado');
+
 console.log('\n' + ok + ' pasadas, ' + bad + ' falladas.');
 process.exit(bad ? 1 : 0);
