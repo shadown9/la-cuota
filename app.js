@@ -767,10 +767,14 @@ if('serviceWorker' in navigator){
   });
 }
 route();
-/* Al arrancar: si hay nube, traer lo último de cada grupo en silencio */
+/* Al arrancar: si hay nube, traer lo último de cada grupo en silencio
+   y subir lo local (migración inicial de datos existentes) */
 if(nubeLista()){
   Object.keys(S.groups).forEach(function(gid){
-    nubePull(gid, function(changed){ if(changed && gid===curGid) renderGroup(); });
+    nubePull(gid, function(changed){
+      if(changed && gid===curGid) renderGroup();
+      nubePushSoon();
+    });
   });
 }
 })();

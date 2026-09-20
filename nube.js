@@ -9,7 +9,7 @@
 //  PEGA AQUÍ LA DIRECCIÓN DE TU BASE (la crea Deivy en Firebase)
 //  Ejemplo: 'https://la-cuota-default-rtdb.firebaseio.com'
 // ============================================================
-var NUBE_DB_URL = '';
+var NUBE_DB_URL = 'https://la-cuota-default-rtdb.firebaseio.com';
 
 function url(path){ return NUBE_DB_URL + '/lacuota/' + path + '.json'; }
 function gidOk(gid){ return /^[A-Za-z0-9_-]{1,64}$/.test(String(gid||'')); }
