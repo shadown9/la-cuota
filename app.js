@@ -995,7 +995,10 @@ function route(){
 }
 if('serviceWorker' in navigator){
   window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').catch(function(){});
+    /* updateViaCache:'none': el chequeo de actualización IGNORA la caché HTTP.
+       Sin esto, GitHub Pages sirve sw.js con max-age=4h y el teléfono puede
+       tardar horas en descubrir una versión nueva aunque la pida. */
+    navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).catch(function(){});
   });
 }
 /* ---------- ACTUALIZACIONES AUTOMÁTICAS ----------
@@ -1003,7 +1006,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 31;
+var APP_V = 32;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
