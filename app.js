@@ -153,21 +153,33 @@ function renderMonth(){
   $('tCount').textContent=sum.countPaid+'/'+sum.countTotal;
 
   var list=$('memberList'); list.innerHTML='';
-  mems.forEach(function(m){
-    var paid=!!pm[m.id];
+  function rowEl(m, isPaid){
     var row=document.createElement('div');
-    row.className='mrow'+(paid?' paid':'');
-    var wa = (!paid && m.phone) ?
+    row.className='mrow'+(isPaid?' paid':'');
+    var wa = (!isPaid && m.phone) ?
       '<button class="wabtn" data-wa="'+m.id+'" aria-label="Recordar por WhatsApp">💬</button>' : '';
     row.innerHTML=
       '<button class="mmain" data-tg="'+m.id+'">'+
         '<span class="avatar">'+esc(initials(m.name))+'</span>'+
         '<span class="minfo"><span class="mname">'+esc(m.name)+'</span>'+
-        '<span class="mstat'+(paid?' paid':'')+'">'+(paid?'Pagó ✓':'Debe '+L.fmtMoney(g.amount,g.currency))+'</span></span>'+
-        '<span class="toggle">'+(paid?'✓':'')+'</span>'+
+        '<span class="mstat'+(isPaid?' paid':'')+'">'+(isPaid?'Pagó ✓':'Debe '+L.fmtMoney(g.amount,g.currency))+'</span></span>'+
+        '<span class="toggle">'+(isPaid?'✓':'')+'</span>'+
       '</button>'+wa;
-    list.appendChild(row);
-  });
+    return row;
+  }
+  function sec(label){
+    var d=document.createElement('div'); d.className='msec'; d.textContent=label; return d;
+  }
+  var owed=mems.filter(function(m){ return !pm[m.id]; });
+  var paidM=mems.filter(function(m){ return !!pm[m.id]; });
+  if(owed.length){
+    list.appendChild(sec('Deben ('+owed.length+')'));
+    owed.forEach(function(m){ list.appendChild(rowEl(m, false)); });
+  }
+  if(paidM.length){
+    list.appendChild(sec('Pagaron ('+paidM.length+')'));
+    paidM.forEach(function(m){ list.appendChild(rowEl(m, true)); });
+  }
 
   list.querySelectorAll('[data-tg]').forEach(function(b){
     b.addEventListener('click', function(){ togglePay(b.getAttribute('data-tg')); });
