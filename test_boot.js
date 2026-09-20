@@ -59,7 +59,7 @@ function makeSandbox(opts){
   function fakeEl(id){
     var el = {
       __id:id,
-      addEventListener:function(){}, removeEventListener:function(){},
+      addEventListener:function(ev,fn){ (this._ev=this._ev||{})[ev]=fn; }, removeEventListener:function(){},
       textContent:'', value:'', disabled:false, hidden:false,
       style:{}, dataset:{},
       classList:{add:function(){},remove:function(){},toggle:function(){}},
@@ -403,6 +403,47 @@ t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTi
 t('plan anual: sin frase que prometa meses extra', !/meses gratis/.test(indexHtml));
 t('plan anual: explica que son 12 meses por $20',
   /12 meses por el precio de 10/.test(indexHtml) && /El plan anual cubre 12 meses por \$20/.test(indexHtml));
+/* 13. Los planes se explican antes de ir a Stripe (nada de salto directo) */
+t('existe la explicación del plan y los botones la usan',
+  /function planExplain\(which\)/.test(appJs) && /planExplain\('monthly'\)/.test(appJs) && /planExplain\('yearly'\)/.test(appJs));
+t('ningún plan salta directo a Stripe', !/payGo\('(monthly|yearly)'\)/.test(appJs));
+t('preconexión a Stripe para que abra más rápido', /rel="preconnect"[^>]*buy\.stripe\.com/.test(indexHtml));
+t('la explicación presenta la dirección de Stripe como confianza', /buy\.stripe\.com/.test(appJs));
+(function(){
+  function psb(opts){
+    var sb = makeSandbox(opts);
+    var els = {};
+    var origGet = sb.document.getElementById;
+    sb.document.getElementById = function(id){
+      if(!els[id]) els[id] = origGet.call(sb.document, id);
+      return els[id];
+    };
+    return sb;
+  }
+  var threw = null;
+  try{
+    var sb = psb({ids: idsFromHtml(indexHtml)});
+    loadApp(sb);
+    var openCalls = [];
+    sb.open = function(url){ openCalls.push(String(url)); return {closed:false, close:function(){}}; };
+    sb.__lacuotaSub.plan('monthly');
+    var html = sb.document.getElementById('sheet').innerHTML;
+    t('plan mensual: explica precio y renovación antes de Stripe',
+      /Plan Mensual/.test(html) && /\$2 al mes/.test(html) && /Continuar al pago/.test(html));
+    t('plan mensual: no abre Stripe todavía', openCalls.length===0);
+    sb.document.getElementById('planGoPay')._ev.click();
+    t('al continuar: abre el enlace mensual de Stripe',
+      openCalls.length===1 && /buy\.stripe\.com\/28E8wI8AD1iGdK413kbV600/.test(openCalls[0]), openCalls.join('|'));
+    sb.__lacuotaSub.plan('yearly');
+    var html2 = sb.document.getElementById('sheet').innerHTML;
+    t('plan anual: explica los 12 meses antes de Stripe',
+      /Plan Anual/.test(html2) && /12 meses/.test(html2) && /\$20/.test(html2) && /Continuar al pago/.test(html2));
+    sb.document.getElementById('planBack')._ev.click();
+    t('atrás: cierra sin abrir Stripe', openCalls.length===1);
+  }catch(e){ threw = e; }
+  t('explicación de planes: sin excepción', !threw, threw && threw.message);
+})();
+
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');
   process.exit(failures ? 1 : 0);

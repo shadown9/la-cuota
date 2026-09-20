@@ -663,6 +663,22 @@ function renderPay(){
   if(pt) pt.textContent = (S.trialStart && trialDaysLeft()>0 && !S.payActive) ? 'Suscríbete a La Cuota' : 'Tu prueba terminó';
   show('v-pay');
 }
+/* Antes de ir a Stripe: explicación clara del plan, sin sorpresas.
+   El botón "Continuar al pago" sí va en el toque (gesto real). */
+function planExplain(which){
+  var anual = which === 'yearly';
+  openSheet('<h3>Plan '+(anual?'Anual':'Mensual')+'</h3>'+
+    '<p class="sub"><b>'+(anual?'$20 al año':'$2 al mes')+'</b> por grupo.</p>'+
+    '<p class="sub">'+(anual
+      ? 'Un solo pago de $20 que cubre 12 meses (el precio de 10). Se renueva cada año.'
+      : 'Se cobran $2 cada mes. Se renueva automáticamente.')+'</p>'+
+    '<p class="sub">Al continuar se abre <b>Stripe</b>, la plataforma de pagos segura. Arriba verás su dirección (buy.stripe.com): así confirmas que tu tarjeta está en buenas manos.</p>'+
+    '<p class="sub">Cancela cuando quieras. Tus datos nunca se borran.</p>'+
+    '<button class="btn-primary btn-block" id="planGoPay">Continuar al pago</button>'+
+    '<button class="linkbtn" id="planBack">Atrás</button>');
+  on('planBack', 'click', closeSheet);
+  on('planGoPay', 'click', function(){ closeSheet(); payGo(which); });
+}
 /* Abre el enlace de pago real de Stripe (modo live) */
 function payGo(which){
   S.pendingPlan = which; save();
@@ -736,6 +752,7 @@ window.__lacuotaSub = {
   getEmail: function(){ return S.payEmail; },
   setEmail: function(e){ S.payEmail = e; },
   pago: function(a){ S.payActive = !!a; },
+  plan: function(w){ planExplain(w); },
   trial: function(){ return S.trialStart; },
   abrir: function(u){ abrirUrlSegura(u, 'Prueba', 'Toca para abrir.'); },
   reintentar: function(u){ reintentarAbrir(u); }
@@ -1032,8 +1049,8 @@ on('setDelete', 'click', function(){
     renderHome(); toast('Grupo eliminado.');
   }else{ b.dataset.confirm='1'; b.textContent='Toca de nuevo para eliminar'; }
 });
-on('payMonthly', 'click', function(){ payGo('monthly'); });
-on('payYearly', 'click', function(){ payGo('yearly'); });
+on('payMonthly', 'click', function(){ planExplain('monthly'); });
+on('payYearly', 'click', function(){ planExplain('yearly'); });
 on('payViewData', 'click', renderHome);
 on('payManageSub', 'click', manageSub);
 on('pagoOkManage', 'click', manageSub);
@@ -1129,7 +1146,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 38;
+var APP_V = 39;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
