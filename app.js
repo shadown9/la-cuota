@@ -197,6 +197,7 @@ function renderMonth(){
   $('mLabel').textContent=L.periodLabel(curMonth, g);
   var pm=paidMap(curGid, curMonth);
   var sum=L.monthSummary(g, mems, pm);
+  $('tTotal').textContent=L.fmtMoney(sum.total,g.currency);
   $('tCollected').textContent=L.fmtMoney(sum.collected,g.currency);
   $('tMissing').textContent=L.fmtMoney(sum.missing,g.currency);
   $('tCount').textContent=sum.countPaid+'/'+sum.countTotal;
@@ -466,6 +467,7 @@ function openPeriodDetail(k){
   show('v-pdetail');
   $('pdName').textContent=L.periodLabel(k, g);
   $('pdSub').textContent=g.name;
+  $('pdTotal').textContent=L.fmtMoney(sum.total,g.currency);
   $('pdCollected').textContent=L.fmtMoney(sum.collected,g.currency);
   $('pdMissing').textContent=L.fmtMoney(sum.missing,g.currency);
   $('pdCount').textContent=sum.countPaid+'/'+sum.countTotal;
@@ -612,7 +614,7 @@ function showReadonly(payload){
   if(!snap){
     $('roName').textContent='Enlace no válido';
     $('roMonth').textContent='Pide al tesorero que te comparta el enlace de nuevo.';
-    $('roCollected').textContent='—'; $('roMissing').textContent='—';
+    $('roCollected').textContent='—'; $('roMissing').textContent='—'; $('roTotal').textContent='—';
     $('roPaid').innerHTML=''; $('roOwed').innerHTML='';
     return;
   }
@@ -621,6 +623,7 @@ function showReadonly(payload){
   $('roMonth').textContent=L.periodLabel(mk, g);
   var pm=(snap.payments||{})[mk]||{};
   var sum=L.monthSummary(g, snap.members||[], pm);
+  $('roTotal').textContent=L.fmtMoney(sum.total,g.currency);
   $('roCollected').textContent=L.fmtMoney(sum.collected,g.currency);
   $('roMissing').textContent=L.fmtMoney(sum.missing,g.currency);
   function row(m, st){

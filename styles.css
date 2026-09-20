@@ -64,8 +64,9 @@ body{
 .monthlabel{font-size:17px;font-weight:600;text-transform:capitalize}
 
 /* Totales */
-.totals{display:flex;gap:8px;padding:6px 0 22px}
-.total{flex:1;text-align:center;background:var(--soft);border-radius:var(--radius);padding:16px 6px}
+.totals{display:flex;flex-wrap:wrap;gap:8px;padding:6px 0 22px}
+.total{flex:1 1 45%;text-align:center;background:var(--soft);border-radius:var(--radius);padding:16px 6px}
+.totals.t3 .total{flex:1 1 30%}
 .tnum{display:block;font-size:22px;font-weight:700;letter-spacing:-0.5px}
 .tnum.warn{color:var(--warn)}
 .tlab{display:block;color:var(--muted);font-size:13px;margin-top:4px}
