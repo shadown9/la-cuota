@@ -667,37 +667,49 @@ function subEmailGo(){
   closeSheet();
   openPortal(em);
 }
-/* Abre el portal de Stripe para el correo dado. */
+/* Abre el portal de Stripe para el correo dado.
+   Primero se pide la URL al servidor y SOLO si llega una válida se abre
+   la pestaña: jamás queda una página negra vacía (about:blank) abierta. */
 function openPortal(email){
   toast('Abriendo tu suscripción…');
-  /* La pestaña se abre en el gesto del toque: si esperamos a que el
-     servidor responda, el bloqueador de ventanas la cancela y "no pasa nada". */
-  var w = null;
-  try{ w = window.open('about:blank', '_blank'); }catch(e){ w = null; }
-  function closeW(){ if(w){ try{ w.close(); }catch(e){} } }
   fetch(PAY_VERIFY_URL + '/portal?email=' + encodeURIComponent(email), {cache:'no-store'})
     .then(function(r){ return r.json(); })
     .then(function(res){
       if(res && res.url){
-        if(w && !w.closed){ w.location.href = res.url; }
-        else { location.href = res.url; }
+        abrirUrlSegura(res.url, 'Administrar suscripción', 'Tu portal de Stripe está listo. Toca para abrirlo.');
       }
       else if(res && res.error === 'not_found'){
-        closeW();
         toast('No encontramos una suscripción con ese correo.');
       }else{
-        closeW();
         toast('No se pudo abrir. Inténtalo de nuevo.');
       }
     })
-    .catch(function(){ closeW(); toast('Sin conexión. Conéctate a internet e inténtalo de nuevo.'); });
+    .catch(function(){ toast('Sin conexión. Conéctate a internet e inténtalo de nuevo.'); });
+}
+/* Abre una URL en pestaña nueva. Si el bloqueador del teléfono la cancela
+   (ya no hay gesto directo), se muestra un botón de La Cuota: al tocarlo
+   sí hay gesto y abre sin problema. Nunca se abre una pestaña vacía. */
+function abrirUrlSegura(url, titulo, texto){
+  var w = null;
+  try{ w = window.open(url, '_blank'); }catch(e){ w = null; }
+  if(w) return;
+  openSheet('<h3>'+esc(titulo)+'</h3>'+
+    '<p class="sub">'+esc(texto)+'</p>'+
+    '<button class="btn-primary btn-block" id="urlGo">Abrir ahora</button>');
+  on('urlGo', 'click', function(){ reintentarAbrir(url); });
+}
+function reintentarAbrir(url){
+  closeSheet();
+  try{ window.open(url, '_blank'); }catch(e){}
 }
 /* Gancho para pruebas: expone el flujo de suscripción sin romper el encapsulado */
 window.__lacuotaSub = {
   manage: function(){ manageSub(); },
   go: function(){ subEmailGo(); },
   getEmail: function(){ return S.payEmail; },
-  setEmail: function(e){ S.payEmail = e; }
+  setEmail: function(e){ S.payEmail = e; },
+  abrir: function(u){ abrirUrlSegura(u, 'Prueba', 'Toca para abrir.'); },
+  reintentar: function(u){ reintentarAbrir(u); }
 };
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
@@ -1088,7 +1100,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 35;
+var APP_V = 36;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

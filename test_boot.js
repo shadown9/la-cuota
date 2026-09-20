@@ -246,6 +246,72 @@ t('el diálogo de correo guarda el correo para la próxima vez',
   t('flujo de suscripción: sin excepción', !threw, threw && threw.message);
 })();
 
+t('nunca se abre una pestaña vacía en el código', !/window\.open\(\s*['"]about:blank['"]/.test(appJs));
+t('openPortal pide la URL antes de abrir (fetch primero)',
+  /function openPortal\(email\)[\s\S]{0,200}fetch\(PAY_VERIFY_URL/.test(appJs));
+
+/* 10. Portal: nunca una pestaña vacía; si el bloqueador actúa, botón de La Cuota */
+asyncTests.push((function(){
+  var sb = makeSandbox({ids: idsFromHtml(indexHtml)});
+  loadApp(sb);
+  var fetchDefers = [], fetchUrls = [], openCalls = [], openRet = null;
+  sb.fetch = function(u){
+    fetchUrls.push(String(u));
+    var d = {};
+    d.promise = new Promise(function(res, rej){ d.res = res; d.rej = rej; });
+    fetchDefers.push(d);
+    return d.promise;
+  };
+  sb.open = function(url, target){ openCalls.push([url, target]); return openRet; };
+  var persist = {};
+  var origGet = sb.document.getElementById;
+  sb.document.getElementById = function(id){
+    if(id==='sheet'){ if(!persist[id]) persist[id]=origGet.call(sb.document,id); return persist[id]; }
+    return origGet.call(sb.document, id);
+  };
+  function tick(n){ var p = Promise.resolve(); for(var i=0;i<(n||8);i++) p = p.then(function(){}); return p; }
+  function okUrl(u){ return { json:function(){ return Promise.resolve({url:u}); } }; }
+  var SUB = sb.__lacuotaSub;
+  SUB.setEmail('deivy@correo.com');
+  SUB.manage();
+  return tick().then(function(){
+    t('portal: no se abre pestaña antes de tener la URL', openCalls.length===0);
+    openRet = { closed:false }; /* el navegador permite abrir */
+    fetchDefers[0].res(okUrl('https://billing.stripe.com/p/sesion123'));
+    return tick();
+  }).then(function(){
+    t('portal: abre la URL real de Stripe',
+      openCalls.length===1 && openCalls[0][0]==='https://billing.stripe.com/p/sesion123',
+      JSON.stringify(openCalls));
+    /* bloqueador activo: window.open devuelve null */
+    fetchDefers = []; openCalls = []; openRet = null;
+    SUB.manage();
+    return tick();
+  }).then(function(){
+    fetchDefers[0].res(okUrl('https://billing.stripe.com/p/sesion456'));
+    return tick();
+  }).then(function(){
+    var sheetHtml = (persist.sheet && persist.sheet.innerHTML) || '';
+    t('portal bloqueado: ofrece botón "Abrir ahora" de La Cuota',
+      /id="urlGo"/.test(sheetHtml) && /Abrir ahora/.test(sheetHtml));
+    t('portal bloqueado: ninguna pestaña vacía',
+      !openCalls.some(function(c){ return c[0]==='about:blank'; }));
+    openRet = { closed:false };
+    SUB.reintentar('https://billing.stripe.com/p/sesion456'); /* gesto real: tocar el botón */
+    t('al tocar Abrir ahora: abre la URL de Stripe',
+      openCalls.length===2 && openCalls[1][0]==='https://billing.stripe.com/p/sesion456');
+    /* correo sin suscripción → aviso, cero pestañas */
+    fetchDefers = []; openCalls = [];
+    SUB.manage();
+    return tick();
+  }).then(function(){
+    fetchDefers[0].res({ json:function(){ return Promise.resolve({error:'not_found'}); } });
+    return tick();
+  }).then(function(){
+    t('sin suscripción: no se abre ninguna pestaña', openCalls.length===0);
+  });
+})());
+
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');
   process.exit(failures ? 1 : 0);
