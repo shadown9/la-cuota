@@ -601,6 +601,27 @@ function payGo(which){
   S.pendingPlan = which; save();
   window.open(STRIPE_LINKS[which], '_blank');
 }
+/* Portal del cliente: cancelar, cambiar de plan o actualizar la tarjeta.
+   El servidor crea una sesión segura con el correo que pagó en Stripe. */
+function manageSub(){
+  var email = (S.payEmail || '').trim();
+  if(!email){
+    email = (window.prompt('Escribe el correo con el que pagaste en Stripe:') || '').trim();
+    if(!email || email.indexOf('@') < 0) return;
+  }
+  toast('Abriendo tu suscripción…');
+  fetch(PAY_VERIFY_URL + '/portal?email=' + encodeURIComponent(email), {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if(res && res.url){ window.open(res.url, '_blank'); }
+      else if(res && res.error === 'not_found'){
+        toast('No encontramos una suscripción con ese correo.');
+      }else{
+        toast('No se pudo abrir. Inténtalo de nuevo.');
+      }
+    })
+    .catch(function(){ toast('Sin conexión. Conéctate a internet e inténtalo de nuevo.'); });
+}
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
 function payCheck(email){
@@ -889,6 +910,9 @@ $('setDelete').addEventListener('click', function(){
 $('payMonthly').addEventListener('click', function(){ payGo('monthly'); });
 $('payYearly').addEventListener('click', function(){ payGo('yearly'); });
 $('payViewData').addEventListener('click', renderHome);
+$('payManageSub').addEventListener('click', manageSub);
+$('pagoOkManage').addEventListener('click', manageSub);
+$('btnManageSub').addEventListener('click', manageSub);
 $('roCta').addEventListener('click', function(){ location.hash=''; locked()?renderPay():startOnboarding(); });
 
 /* Trae un grupo de la nube al teléfono (también sirve para recuperar
