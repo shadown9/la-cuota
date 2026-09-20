@@ -124,6 +124,18 @@
     <button id="obRecover" class="linkbtn">¿Ya tenías un grupo? Recupéralo</button>
   </section>
 
+  <!-- VERIFICACIÓN DE CUENTA (una prueba gratis por cuenta de Google) -->
+  <section id="v-verify" class="view" hidden>
+    <div class="verify-card">
+      <div class="verify-g">G</div>
+      <h1>Activa tus 30 días gratis</h1>
+      <p>Para que nadie abuse de la prueba, cada cuenta de Google tiene <b>una sola prueba</b> en La Cuota. Entra con tu cuenta para activar la tuya.</p>
+      <button id="verGoogle" class="btn-google btn-block"><span class="gG">G</span> Continuar con Google</button>
+      <p class="fine" id="verMsg" hidden></p>
+      <p class="fine">No publicamos nada en tu nombre. Solo guardamos que esta cuenta ya usó su prueba, para que el sistema sea justo con todos.</p>
+    </div>
+  </section>
+
   <!-- MIEMBROS -->
   <section id="v-members" class="view" hidden>
     <header class="top nav">
@@ -293,6 +305,10 @@
 <script src="logica.js"></script>
 <script src="nube.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
+<!-- Firebase Auth (solo para "Continuar con Google": una prueba por cuenta).
+     Si no carga (sin conexión), la verificación lo dice y no se bloquea la app. -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

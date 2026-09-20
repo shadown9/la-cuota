@@ -344,21 +344,27 @@ t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTi
     return { lacuota_v1: JSON.stringify({
       groups:o.groups||{}, members:{}, payments:o.payments||{}, payTs:{}, delMembers:{}, unpays:{},
       onboarded:true, trialStart:o.trialStart||0, payActive:!!o.payActive, payEmail:o.payEmail||'',
-      notifyPay:false, ui:{}
+      notifyPay:false, ui:{}, googleOk:!!o.googleOk, googleSub:o.googleSub||'', googleTrialStart:o.googleTrialStart||0
     })};
   }
   var DAY = 86400000, now = Date.now(), threw = null;
   try{
-    /* 11a: con pagos viejos y sin trialStart → la prueba arranca del primer pago */
+    /* 11a: con pagos viejos y sin trialStart → la prueba arranca del primer pago
+       (cuenta verificada que perdió sus datos y los recuperó) */
     var OLD = now - 7*DAY;
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({
-      groups:{g1:{id:'g1',name:'T'}}, payments:{g1:{'2026-09':{m1:OLD}}}, trialStart:0 })});
+      groups:{g1:{id:'g1',name:'T'}}, payments:{g1:{'2026-09':{m1:OLD}}}, trialStart:0, googleOk:true })});
     loadApp(sb);
     t('trial perdido: arranca desde el primer pago registrado', sb.__lacuotaSub.trial()===OLD);
     t('trial perdido: el aviso vuelve a verse',
       sb.__els.trialBanner.hidden===false && /Te quedan/.test(sb.__els.trialBanner.innerHTML) && /días/.test(sb.__els.trialBanner.innerHTML));
+    /* 11a2: SIN cuenta verificada no se arranca ninguna prueba nueva */
+    var sbv = psb({ids: idsFromHtml(indexHtml), seed: seed({
+      groups:{g1:{id:'g1',name:'T'}}, payments:{g1:{'2026-09':{m1:OLD}}}, trialStart:0 })});
+    loadApp(sbv);
+    t('sin verificar: no se regala prueba al arrancar', sbv.__lacuotaSub.trial()===0);
     /* 11b: con grupos pero sin pagos → arranca hoy */
-    var sb2 = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'T'}}, trialStart:0})});
+    var sb2 = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'T'}}, trialStart:0, googleOk:true})});
     var before = Date.now(); loadApp(sb2);
     var tr = sb2.__lacuotaSub.trial();
     t('sin pagos previos: la prueba arranca hoy', tr>=before && tr<=Date.now());
@@ -467,6 +473,66 @@ asyncTests.push(new Promise(function(resolve){
     resolve();
   });
 }));
+
+/* 15. Verificación con Google: una prueba por cuenta (la puerta de la prueba) */
+t('existe la pantalla de verificación en el HTML',
+  /id="v-verify"/.test(indexHtml) && /id="verGoogle"/.test(indexHtml) && /id="verMsg"/.test(indexHtml));
+t('v-verify está en la lista de vistas', /'v-verify'/.test(appJs));
+t('Firebase Auth se carga (compat, sin bloquear si no hay red)',
+  /firebase-app-compat\.js/.test(indexHtml) && /firebase-auth-compat\.js/.test(indexHtml));
+t('la verificación habla con el worker (/trial)', /\/trial/.test(appJs) && /TRIAL_URL/.test(appJs));
+t('existe la puerta L.needsVerify', /L\.needsVerify = function/.test(
+  fs.readFileSync(path.join(DIR,'logica.js'),'utf8')));
+t('el primer pago no arranca prueba sin verificar', /ensureTrial\(\)/.test(appJs));
+t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs));
+(function(){
+  function psb(opts){
+    var sb = makeSandbox(opts);
+    var els = {};
+    var origGet = sb.document.getElementById;
+    sb.document.getElementById = function(id){
+      if(!els[id]) els[id] = origGet.call(sb.document, id);
+      return els[id];
+    };
+    sb.__els = els;
+    return sb;
+  }
+  function seed(o){
+    o = o || {};
+    return { lacuota_v1: JSON.stringify({
+      groups:o.groups||{}, members:{}, payments:o.payments||{}, payTs:{}, delMembers:{}, unpays:{},
+      onboarded:true, trialStart:o.trialStart||0, payActive:!!o.payActive, payEmail:o.payEmail||'',
+      notifyPay:false, ui:{}, googleOk:!!o.googleOk
+    })};
+  }
+  var threw = null;
+  try{
+    /* 15a: quién ve la verificación */
+    var a = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1'}}})});
+    loadApp(a);
+    t('con grupos y sin nada: necesita verificar', a.__lacuotaSub.necesitaVerificar()===true);
+    var b = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1'}}, trialStart: 123})});
+    loadApp(b);
+    t('con prueba arrancada: no pide verificar', b.__lacuotaSub.necesitaVerificar()===false);
+    var c = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1'}}, payActive:true})});
+    loadApp(c);
+    t('pagando: no pide verificar', c.__lacuotaSub.necesitaVerificar()===false);
+    var d = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1'}}, googleOk:true})});
+    loadApp(d);
+    t('verificado: no pide verificar', d.__lacuotaSub.necesitaVerificar()===false);
+    /* 15b: la pantalla se muestra */
+    a.__lacuotaSub.verificar();
+    t('verificar(): muestra la pantalla v-verify',
+      a.__els['v-verify'].hidden===false && a.__els['v-home'].hidden===true);
+    /* 15c: sin clave de Firebase aún → mensaje claro, sin llamadas de red */
+    var fetchCalls = 0;
+    a.fetch = function(){ fetchCalls++; return Promise.reject(new Error('no debe llamarse')); };
+    a.__els['verGoogle']._ev.click();
+    t('sin clave activada: avisa claro y no llama a la red',
+      fetchCalls===0 && a.__els['verMsg'].hidden===false && /aún no está activada/.test(a.__els['verMsg'].textContent));
+  }catch(e){ threw = e; }
+  t('verificación: sin excepción', !threw, threw && threw.message);
+})();
 
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');

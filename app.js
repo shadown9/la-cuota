@@ -11,9 +11,13 @@ function load(){
   try{
     var raw = localStorage.getItem(KEY);
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
-      s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; return s; }
+      s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; s.ui=s.ui||{};
+      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; return s; }
   }catch(e){}
-  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{}};
+  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{},
+    /* Identidad: la prueba gratis exige una cuenta de Google verificada en
+       el servidor (una cuenta = una prueba). */
+    googleOk:false, googleSub:'', googleTrialStart:0};
 }
 function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 function save(){ persist(); nubePushSoon(); }
@@ -147,6 +151,35 @@ function copyText(txt, okMsg){
   }
 }
 
+/* ---------- identidad con Google: una prueba por cuenta ----------
+   La prueba gratis exige entrar con Google. El SERVIDOR verifica el token
+   y recuerda qué cuentas ya usaron su prueba (una cuenta = una prueba,
+   para siempre). Borrar la app o crear otro grupo no da otra prueba.
+   La clave API de Firebase es pública por diseño (no es un secreto). */
+var FB_CONFIG = { apiKey:'CLAVE_API_WEB_DE_FIREBASE', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota' };
+var FB_AUTH = {
+  ready: function(){
+    try{
+      if(typeof firebase==='undefined' || !firebase.auth) return false;
+      if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+      return true;
+    }catch(e){ return false; }
+  },
+  user: function(){ try{ return firebase.auth().currentUser || null; }catch(e){ return null; } },
+  signIn: function(){
+    var p = new firebase.auth.GoogleAuthProvider();
+    return firebase.auth().signInWithRedirect(p);
+  },
+  redirectResult: function(){
+    try{ return firebase.auth().getRedirectResult(); }
+    catch(e){ return Promise.resolve(null); }
+  },
+  token: function(){
+    var u = FB_AUTH.user();
+    return u ? u.getIdToken() : Promise.resolve(null);
+  }
+};
+
 /* ---------- prueba gratis ---------- */
 var TRIAL_DAYS = 30;
 function trialDaysLeft(){
@@ -158,9 +191,12 @@ function locked(){ return S.trialStart>0 && trialDaysLeft()<=0 && !S.payActive; 
 /* Si el usuario ya tiene grupos pero no hay trialStart (recuperó sus datos
    con el enlace de tesorero o viene de una versión vieja), la prueba
    arranca desde su primer pago registrado — o desde hoy si no hay pagos.
-   Sin esto, jamás vería el aviso de la prueba ni se le pediría pagar. */
+   Sin esto, jamás vería el aviso de la prueba ni se le pediría pagar.
+   La puerta de Google (needsVerify) se revisa antes: sin cuenta verificada
+   no se arranca ninguna prueba nueva. */
 function bootstrapTrial(){
   if(S.trialStart || !Object.keys(S.groups).length) return;
+  if(!S.googleOk) return;
   var first = 0;
   Object.keys(S.payments || {}).forEach(function(gid){
     var per = S.payments[gid] || {};
@@ -172,12 +208,99 @@ function bootstrapTrial(){
       });
     });
   });
-  S.trialStart = first || Date.now();
+  S.trialStart = S.googleTrialStart || first || Date.now();
   save();
+}
+/* La prueba solo corre si ya arrancó o si la cuenta está verificada.
+   Devuelve false cuando hay que mostrar la pantalla de verificación. */
+function ensureTrial(){
+  if(S.trialStart) return true;
+  if(S.googleOk){ S.trialStart = S.googleTrialStart || Date.now(); save(); return true; }
+  return false;
+}
+
+/* ---------- verificación con Google ----------
+   A dónde volver después de verificar (se fija antes de mostrarla). */
+var verNext = null;
+function showVerify(){
+  verNext = verNext || null;
+  var m = document.getElementById('verMsg');
+  if(m){ m.hidden = true; m.textContent=''; }
+  var b = document.getElementById('verGoogle');
+  if(b) b.disabled = false;
+  show('v-verify');
+}
+/* Envía el token de Google al servidor, que verifica la firma y dice si
+   esta cuenta ya usó su prueba (una cuenta = una prueba, para siempre). */
+function cuentaVerificar(){
+  var m = document.getElementById('verMsg');
+  var b = document.getElementById('verGoogle');
+  function msg(t){ if(m){ m.hidden=false; m.textContent=t; } if(b) b.disabled=false; }
+  if(b) b.disabled = true;
+  /* Sin la clave web de Firebase (la pone el dueño al activar Google),
+     no se puede verificar: decirlo claro en vez de fallar raro. */
+  if(!FB_CONFIG.apiKey || FB_CONFIG.apiKey.indexOf('CLAVE_')===0){
+    msg('La verificación con Google aún no está activada. Inténtalo más tarde.');
+    return;
+  }
+  if(!FB_AUTH.ready()){
+    msg('No hay conexión para verificar. Revisa tu internet e inténtalo de nuevo.');
+    return;
+  }
+  FB_AUTH.token().then(function(existing){
+    if(existing) return existing;
+    return FB_AUTH.signIn().then(function(){ return null; });
+  }).then(function(idToken){
+    if(!idToken) return; // viene de un redirect: el resultado llega al reanudar
+    return fetch(TRIAL_URL, {
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({idToken:idToken})
+    }).then(function(r){
+      if(!r.ok) throw new Error('http'+r.status);
+      return r.json();
+    }).then(function(res){
+      if(!res || !res.ok) throw new Error('rechazado');
+      S.googleOk = true;
+      S.googleSub = '';
+      S.googleTrialStart = res.trialStart || Date.now();
+      if(!S.trialStart) S.trialStart = S.googleTrialStart;
+      save();
+      if(res.trialUsed){
+        toast('Esta cuenta ya usó su prueba gratis. Activa tu suscripción para seguir.');
+        renderPay();
+      }else{
+        toast('Prueba activada: 30 días gratis.');
+        var next = verNext; verNext = null;
+        if(next) next(); else renderHome();
+      }
+    });
+  }).catch(function(e){
+    var code = (e && e.code) || '';
+    if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
+      msg('Se canceló el inicio de sesión. Tócalo de nuevo cuando quieras.');
+    }else{
+      msg('No se pudo verificar. Inténtalo de nuevo.');
+    }
+  });
+}
+/* Al volver del redirect de Google, completa la verificación. */
+function cuentaVerificarRedirect(){
+  if(!FB_AUTH.ready()) return;
+  FB_AUTH.redirectResult().then(function(result){
+    if(result && result.user){
+      var vv = document.getElementById('v-verify');
+      if(!vv || vv.hidden) showVerify();
+      /* El redirect recarga la página: recuperar a dónde iba el usuario. */
+      var gid = null;
+      try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
+      if(gid) verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
+      cuentaVerificar();
+    }
+  }).catch(function(){});
 }
 
 /* ---------- navegación ---------- */
-var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly','v-legal'];
+var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly','v-legal','v-verify'];
 function show(id){
   VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = (v!==id); });
   var cur=$(id); if(cur) cur.hidden=false;
@@ -332,9 +455,11 @@ function togglePay(mid){
   S.unpays[curGid][curMonth]=S.unpays[curGid][curMonth]||{};
   if (p[mid]){ delete p[mid]; S.unpays[curGid][curMonth][mid]=Date.now(); }
   else{
+    /* La prueba corre desde el primer pago, pero solo con cuenta verificada:
+       sin eso, se muestra la pantalla de verificación y el pago no se anota. */
+    if (!S.trialStart && !ensureTrial()){ verNext=null; showVerify(); return; }
     p[mid]=Date.now();
     delete S.unpays[curGid][curMonth][mid];
-    if (!S.trialStart){ S.trialStart=Date.now(); } // la prueba corre desde el primer pago
   }
   S.payTs[curGid]=S.payTs[curGid]||{};
   S.payTs[curGid][curMonth]=Date.now();
@@ -464,6 +589,14 @@ function finishOnboarding(){
           cutWeekday:parseInt(obDraft.cutWeekday,10)||0,
           createdAt:Date.now(), updatedAt:Date.now() };
   S.groups[g.id]=g; S.onboarded=true; save();
+  /* La prueba exige cuenta verificada: se pide aquí, con el grupo ya
+     creado, antes de dejar anotar. Al terminar vuelve a este grupo. */
+  if(L.needsVerify(S)){
+    try{ sessionStorage.setItem('lacuota_verGid', g.id); }catch(e){}
+    verNext=function(){ openGroup(g.id); setTimeout(openMembers, 600); };
+    showVerify();
+    return;
+  }
   toast('Grupo creado. Agrega a los miembros y toca Terminar.');
   openGroup(g.id);
   setTimeout(openMembers, 600);
@@ -756,10 +889,16 @@ window.__lacuotaSub = {
   trial: function(){ return S.trialStart; },
   recover: function(gid, cb){ fetchGroupToLocal(gid, cb); },
   abrir: function(u){ abrirUrlSegura(u, 'Prueba', 'Toca para abrir.'); },
-  reintentar: function(u){ reintentarAbrir(u); }
+  reintentar: function(u){ reintentarAbrir(u); },
+  /* Verificación con Google (una prueba por cuenta) */
+  verificar: function(){ verNext=null; showVerify(); },
+  necesitaVerificar: function(){ return L.needsVerify(S); },
+  cuenta: function(){ return {googleOk:!!S.googleOk, trialStart:S.trialStart||0}; }
 };
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
+/* El mismo worker verifica la cuenta de Google para la prueba gratis. */
+var TRIAL_URL = PAY_VERIFY_URL + '/trial';
 function payCheck(email){
   return fetch(PAY_VERIFY_URL + '/sub?email=' + encodeURIComponent(email), {cache:'no-store'})
     .then(function(r){ return r.json(); })
@@ -1057,6 +1196,7 @@ on('payManageSub', 'click', manageSub);
 on('pagoOkManage', 'click', manageSub);
 on('btnManageSub', 'click', manageSub);
 on('roCta', 'click', function(){ setHash(''); locked()?renderPay():startOnboarding(); });
+on('verGoogle', 'click', cuentaVerificar);
 
 /* Trae un grupo de la nube al teléfono (también sirve para recuperar
    un grupo después de borrar los datos del navegador) */
@@ -1207,6 +1347,7 @@ try{
     }
   }
   bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
+  cuentaVerificarRedirect(); /* completa el login de Google al volver del redirect */
   route();
   paintVer();
   checkAppUpdate();

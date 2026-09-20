@@ -190,6 +190,15 @@
     return rows.map(function (r) { return r.map(csvEsc).join(','); }).join('\n');
   };
 
+  /* La prueba gratis exige cuenta de Google verificada en el servidor
+     (una cuenta = una prueba). Devuelve true si hay que mostrar la
+     pantalla de verificación antes de arrancar/usar la prueba.
+     Los que ya pagan o ya tienen prueba arrancada nunca la ven. */
+  L.needsVerify = function (S) {
+    if (!S || S.payActive || S.trialStart || S.googleOk) return false;
+    return Object.keys((S.groups || {})).length > 0;
+  };
+
   L.uid = function (prefix) {
     return (prefix || 'id') + '_' + Date.now().toString(36) +
       Math.floor(Math.random() * 1e6).toString(36);

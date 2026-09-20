@@ -187,5 +187,19 @@ t(_g1!==_g2, 'gidNuevo genera llaves distintas');
 t(L.esLegado('id_mua66b5xk6r9'), 'grupo viejo es legado');
 t(L.esLegado(''), 'gid vacio cuenta como legado');
 
+
+/* --- verificación con Google: una prueba por cuenta (v41) --- */
+t(!L.needsVerify({groups:{}, trialStart:0, payActive:false, googleOk:false}),
+  'sin grupos no pide verificar (onboarding normal)');
+t(L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:false, googleOk:false}),
+  'con grupos y sin prueba ni cuenta pide verificar');
+t(!L.needsVerify({groups:{g1:{}}, trialStart:123, payActive:false, googleOk:false}),
+  'con prueba ya arrancada no pide verificar');
+t(!L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:true, googleOk:false}),
+  'pagando no pide verificar');
+t(!L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:false, googleOk:true}),
+  'cuenta verificada no pide verificar');
+t(!L.needsVerify(null), 'estado nulo no pide verificar');
+
 console.log('\n' + ok + ' pasadas, ' + bad + ' falladas.');
 process.exit(bad ? 1 : 0);
