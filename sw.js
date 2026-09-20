@@ -1,5 +1,5 @@
 /* La Cuota — service worker: funciona sin conexión */
-var CACHE = 'lacuota-v30';
+var CACHE = 'lacuota-v31';
 var FILES = [
   './',
   './index.html',
@@ -39,6 +39,8 @@ self.addEventListener('fetch', function(e){
   // La nube (Firebase) siempre va directo a la red: jamás se cachea,
   // si no el teléfono vería datos viejos aunque refresque.
   if (url.origin !== self.location.origin){ e.respondWith(fetch(e.request)); return; }
+  // version.json jamás se cachea: es la que avisa que hay actualización.
+  if (url.pathname.split('/').pop() === 'version.json'){ e.respondWith(fetch(e.request)); return; }
   e.respondWith(
     caches.match(e.request, {ignoreSearch: true}).then(function(hit){
       return hit || fetch(e.request).then(function(res){

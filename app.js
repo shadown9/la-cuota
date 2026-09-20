@@ -998,7 +998,39 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(function(){});
   });
 }
+/* ---------- ACTUALIZACIONES AUTOMÁTICAS ----------
+   La app se actualiza sola, el usuario no tiene que hacer nada: al arrancar
+   (y cada 5 minutos, y al volver del fondo) compara su versión con
+   version.json del servidor. Si hay una más nueva, le pide al service
+   worker que se actualice y recarga cuando el nuevo toma el control. */
+var APP_V = 31;
+function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
+function checkAppUpdate(){
+  if(!('serviceWorker' in navigator)) return;
+  fetch('version.json?ts='+Date.now(), {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.v && d.v > APP_V){
+        navigator.serviceWorker.getRegistration().then(function(reg){
+          if(reg) reg.update().catch(function(){});
+        }).catch(function(){});
+      }
+    }).catch(function(){});
+}
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if(sessionStorage.getItem('lacuota_upd')) return;
+    sessionStorage.setItem('lacuota_upd','1');
+    location.reload();
+  });
+}
+document.addEventListener('visibilitychange', function(){
+  if(!document.hidden) checkAppUpdate();
+});
+setInterval(checkAppUpdate, 5*60*1000);
 route();
+paintVer();
+checkAppUpdate();
 /* Re-verificar la suscripción en silencio al arrancar: si Stripe dice que
    ya no está activa, se desactiva sola (nadie la mantiene a mano). */
 if(S.payActive && S.payEmail){
