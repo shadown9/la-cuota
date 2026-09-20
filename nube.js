@@ -44,13 +44,18 @@ var Nube = {
     var es = null;
     try{ es = new EventSource(url('groups/' + encodeURIComponent(gid))); }
     catch(e){ return function(){}; }
-    es.onmessage = function(ev){
-      var data = null;
-      try{ data = JSON.parse(ev.data); }catch(e){ return; }
-      alCambiar(data);
+    // Firebase envía eventos con nombre ('put'/'patch'); onmessage nunca
+    // se dispara con ellos. Al avisar, la app trae todo y fusiona.
+    function onEv(){ try{ alCambiar(); }catch(e){} }
+    es.addEventListener('put', onEv);
+    es.addEventListener('patch', onEv);
+    es.onerror = function(){ /* el navegador reintenta solo */ };
+    subs[gid] = function(){
+      try{ es.removeEventListener('put', onEv); }catch(e){}
+      try{ es.removeEventListener('patch', onEv); }catch(e){}
+      try{ es.close(); }catch(e){}
+      delete subs[gid];
     };
-    es.onerror = function(){ /* reintenta solo en silencio */ };
-    subs[gid] = function(){ try{ es.close(); }catch(e){} delete subs[gid]; };
     return subs[gid];
   },
 

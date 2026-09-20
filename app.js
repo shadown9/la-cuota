@@ -43,10 +43,9 @@ function nubePull(gid, done){
 function nubeWatch(gid){
   nubeUnwatch();
   if(!nubeLista()) return;
-  nubeUnsub=CuotaNube.suscribir(gid, function(remote){
-    if(!remote || !remote.meta) return;
-    var m=L.mergeGroup(L.groupSnapshot(S, gid), remote);
-    if(m.changed){ L.applySnapshot(S, gid, m.state); save(); renderGroup(); }
+  nubeUnsub=CuotaNube.suscribir(gid, function(){
+    // La nube avisa que algo cambió: traer todo y fusionar en silencio
+    nubePull(gid, function(changed){ if(changed && curGid===gid) renderGroup(); });
   });
 }
 function nubeUnwatch(){ if(nubeUnsub){ try{ nubeUnsub(); }catch(e){} nubeUnsub=null; } }
