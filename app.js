@@ -353,8 +353,12 @@ function renderMemList(){
       '<span class="avatar">'+esc(initials(m.name))+'</span>'+
       '<span class="minfo"><span class="mname">'+esc(m.name)+'</span>'+
       '<span class="mstat">'+esc(m.phone||'Sin teléfono')+'</span></span></div>'+
+      '<button class="wabtn" data-edit="'+m.id+'" aria-label="Editar">✏️</button>'+
       '<button class="wabtn" data-del="'+m.id+'" aria-label="Quitar">✕</button>';
     list.appendChild(row);
+  });
+  list.querySelectorAll('[data-edit]').forEach(function(b){
+    b.addEventListener('click', function(){ editMember(b.getAttribute('data-edit')); });
   });
   list.querySelectorAll('[data-del]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -371,6 +375,19 @@ function addMember(){
   S.members[m.id]=m; save();
   $('memName').value=''; $('memPhone').value=''; $('memName').focus();
   renderMemList();
+}
+function editMember(id){
+  var m=S.members[id]; if(!m) return;
+  openSheet('<h3>Editar miembro</h3>'+
+    '<input id="edName" type="text" maxlength="40" placeholder="Nombre" value="'+esc(m.name)+'">'+
+    '<input id="edPhone" type="tel" maxlength="20" placeholder="Teléfono (con código país)" inputmode="tel" value="'+esc(m.phone||'')+'">'+
+    '<button class="btn-primary btn-block" id="edSave">Guardar cambios</button>');
+  $('edSave').addEventListener('click', function(){
+    var n=$('edName').value.trim();
+    if(!n){ toast('El nombre no puede quedar vacío.'); return; }
+    m.name=n; m.phone=L.normPhone($('edPhone').value.trim());
+    save(); closeSheet(); renderMemList(); toast('Cambios guardados.');
+  });
 }
 
 /* ---------- HISTORIAL ---------- */

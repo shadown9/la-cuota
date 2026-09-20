@@ -222,6 +222,10 @@ input:focus{border-bottom-color:var(--ink)}
   text-align:left;font:inherit;color:inherit}
 .sopt:last-child{border-bottom:none}
 .sopt.danger{color:var(--warn)}
+.sheet input[type=text],.sheet input[type=tel]{
+  width:100%;font-size:17px;padding:14px 16px;border:1px solid #d9d9de;border-radius:12px;
+  margin-top:10px;box-sizing:border-box;font-family:inherit;
+}
 
 /* Aviso */
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:36px;z-index:60;
