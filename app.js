@@ -646,10 +646,29 @@ function payGo(which){
    El servidor crea una sesión segura con el correo que pagó en Stripe. */
 function manageSub(){
   var email = (S.payEmail || '').trim();
-  if(!email){
-    email = (window.prompt('Escribe el correo con el que pagaste en Stripe:') || '').trim();
-    if(!email || email.indexOf('@') < 0) return;
-  }
+  if(email){ openPortal(email); return; } /* un toque: ya conocemos el correo */
+  subEmailAsk(); /* primera vez: diálogo propio, se recuerda para siempre */
+}
+/* Pide el correo UNA sola vez en una pantalla de La Cuota (nada de globo
+   negro del sistema) y lo guarda: la próxima vez entra directo. */
+function subEmailAsk(){
+  openSheet('<h3>Administrar suscripción</h3>'+
+    '<p class="sub">Escribe el correo con el que pagaste. Lo guardamos para que la próxima vez entres directo, sin escribirlo.</p>'+
+    '<input type="email" id="subEmail" placeholder="tu@correo.com" inputmode="email" autocomplete="email">'+
+    '<button class="btn-primary btn-block" id="subEmailGo">Continuar</button>');
+  var inp = $('subEmail');
+  if(inp) inp.focus();
+  on('subEmailGo', 'click', subEmailGo);
+}
+function subEmailGo(){
+  var em = (($('subEmail')||{}).value || '').trim();
+  if(!em || em.indexOf('@') < 0){ toast('Escribe un correo válido.'); return; }
+  S.payEmail = em; save();
+  closeSheet();
+  openPortal(em);
+}
+/* Abre el portal de Stripe para el correo dado. */
+function openPortal(email){
   toast('Abriendo tu suscripción…');
   /* La pestaña se abre en el gesto del toque: si esperamos a que el
      servidor responda, el bloqueador de ventanas la cancela y "no pasa nada". */
@@ -673,6 +692,13 @@ function manageSub(){
     })
     .catch(function(){ closeW(); toast('Sin conexión. Conéctate a internet e inténtalo de nuevo.'); });
 }
+/* Gancho para pruebas: expone el flujo de suscripción sin romper el encapsulado */
+window.__lacuotaSub = {
+  manage: function(){ manageSub(); },
+  go: function(){ subEmailGo(); },
+  getEmail: function(){ return S.payEmail; },
+  setEmail: function(e){ S.payEmail = e; }
+};
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
 function payCheck(email){
@@ -1062,7 +1088,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 34;
+var APP_V = 35;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

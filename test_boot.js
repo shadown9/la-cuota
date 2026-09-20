@@ -185,6 +185,67 @@ asyncTests.push((function(){
   });
 })());
 
+/* 9. Administrar suscripción: sin globo negro; un toque si ya hay correo */
+t('adiós al prompt nativo: app.js no usa window.prompt',
+  !/window\.prompt\s*\(/.test(appJs));
+t('manageSub entra directo si hay correo guardado',
+  /if\(email\)\{\s*openPortal\(email\); return;/.test(appJs));
+t('el diálogo de correo guarda el correo para la próxima vez',
+  /function subEmailGo\(\)[\s\S]{0,300}S\.payEmail = em;/.test(appJs));
+(function(){
+  var sb = makeSandbox({ids: idsFromHtml(indexHtml)});
+  loadApp(sb);
+  var promptCalls = 0;
+  sb.prompt = function(){ promptCalls++; return ''; };
+  var fetchUrls = [];
+  sb.fetch = function(u){ fetchUrls.push(String(u)); return Promise.reject(new Error('offline')); };
+  /* elementos persistentes para leer lo que el diálogo escribe */
+  var persist = {};
+  var origGet = sb.document.getElementById;
+  sb.document.getElementById = function(id){
+    if(id==='sheet'||id==='subEmail'){ if(!persist[id]) persist[id]=origGet.call(sb.document,id); return persist[id]; }
+    return origGet.call(sb.document, id);
+  };
+  var threw = null;
+  try{
+    var SUB = sb.__lacuotaSub;
+    /* caso 1: con correo guardado → directo al portal, sin preguntar */
+    SUB.setEmail('deivy@correo.com');
+    SUB.manage();
+    t('con correo guardado: no pide el correo (cero prompts)', promptCalls===0);
+    t('con correo guardado: llama al portal con ese correo',
+      fetchUrls.length===1 && fetchUrls[0].indexOf('/portal?email=deivy%40correo.com')!==-1, fetchUrls.join('|'));
+    /* caso 2: sin correo → diálogo propio con campo de correo, sin prompt */
+    SUB.setEmail('');
+    fetchUrls = [];
+    promptCalls = 0;
+    SUB.manage();
+    var sheetHtml = (persist.sheet && persist.sheet.innerHTML) || '';
+    t('sin correo: no usa el globo negro del sistema', promptCalls===0);
+    t('sin correo: abre diálogo de La Cuota con campo de correo',
+      /id="subEmail"/.test(sheetHtml) && /Continuar/.test(sheetHtml) && /Administrar suscripción/.test(sheetHtml));
+    t('sin correo: todavía no llama al portal', fetchUrls.length===0);
+    /* caso 3: escribe el correo y continúa → lo guarda y abre el portal */
+    persist.subEmail.value = 'deivy@correo.com';
+    SUB.go();
+    t('al continuar: guarda el correo', SUB.getEmail()==='deivy@correo.com');
+    t('al continuar: abre el portal con ese correo',
+      fetchUrls.length===1 && fetchUrls[0].indexOf('/portal?email=deivy%40correo.com')!==-1);
+    /* caso 4: la próxima vez ya es un toque */
+    fetchUrls = []; promptCalls = 0;
+    SUB.manage();
+    t('próxima vez: un toque, sin diálogo ni prompt',
+      promptCalls===0 && fetchUrls.length===1);
+    /* caso 5: correo inválido → no avanza */
+    SUB.setEmail('');
+    fetchUrls = [];
+    persist.subEmail.value = 'no-es-correo';
+    SUB.go();
+    t('correo inválido: no llama al portal', fetchUrls.length===0);
+  }catch(e){ threw = e; }
+  t('flujo de suscripción: sin excepción', !threw, threw && threw.message);
+})();
+
 Promise.all(asyncTests).then(function(){
   console.log(failures ? ('\n'+failures+' FALLOS') : '\nTODO OK (arranque)');
   process.exit(failures ? 1 : 0);
