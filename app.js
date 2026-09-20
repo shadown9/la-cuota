@@ -28,6 +28,17 @@ function toast(msg){
   clearTimeout(toastT); toastT=setTimeout(function(){ t.hidden=true; }, 2600);
 }
 
+/* Comparte con el menú del teléfono (WhatsApp, Telegram, etc.); si no se puede, copia. */
+function shareText(txt, title, copyMsg){
+  if (navigator.share){
+    navigator.share({title:title||'La Cuota', text:txt}).catch(function(){});
+  } else copyText(txt, copyMsg);
+}
+function shareLink(url, title, copyMsg){
+  if (navigator.share){
+    navigator.share({title:title||'La Cuota', url:url}).catch(function(){});
+  } else copyText(url, copyMsg);
+}
 function copyText(txt, okMsg){
   function done(){ toast(okMsg || 'Copiado.'); }
   if (navigator.clipboard && navigator.clipboard.writeText){
@@ -500,11 +511,11 @@ function shareSheet(){
     '<button class="sopt" id="shRo">👥&nbsp; Copiar enlace de miembros <span style="color:var(--muted);font-size:14px">(solo ven)</span></button>'+
     '<button class="sopt" id="shEd">🔑&nbsp; Copiar enlace de tesorero <span style="color:var(--muted);font-size:14px">(para ti)</span></button>');
   $('shRo').addEventListener('click', function(){
-    copyText(roLink, 'Enlace copiado. Mándalo a tus miembros.');
+    shareLink(roLink, 'La Cuota — enlace de miembros', 'Enlace copiado. Mándalo a tus miembros.');
     closeSheet();
   });
   $('shEd').addEventListener('click', function(){
-    copyText(edLink, 'Enlace copiado. Ábrelo en tu teléfono.');
+    shareLink(edLink, 'La Cuota — enlace de tesorero', 'Enlace copiado. Ábrelo en tu teléfono.');
     closeSheet();
   });
 }
@@ -572,14 +583,14 @@ $('btnRemindAll').addEventListener('click', function(){
   var g=S.groups[curGid];
   var sum=sumFor(curGid, curMonth);
   if(!sum.owed.length){ toast('Todos están al día. 🎉'); return; }
-  copyText(L.debtorsText(g, sum, L.periodLabel(curMonth, g)),
+  shareText(L.debtorsText(g, sum, L.periodLabel(curMonth, g)), g.name,
     'Texto copiado. Pégalo en tu grupo de WhatsApp.');
 });
 $('btnSummary').addEventListener('click', function(){
   var g=S.groups[curGid];
   var sum=sumFor(curGid, curMonth);
-  copyText(L.summaryText(g, sum, L.periodLabel(curMonth, g)),
-    'Resumen copiado. Compártelo por WhatsApp.');
+  shareText(L.summaryText(g, sum, L.periodLabel(curMonth, g)), g.name,
+    'Resumen copiado. Compártelo donde quieras.');
 });
 
 $('memBack').addEventListener('click', renderGroup);
