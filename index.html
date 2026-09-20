@@ -28,6 +28,7 @@
       <button id="btnRecoverHome" class="linkbtn">¿Ya tenías un grupo? Recupéralo</button>
     </div>
     <button id="btnFaqHome" class="linkbtn">Preguntas frecuentes</button>
+    <p class="legalfoot"><a href="#/privacidad">Privacidad</a> · <a href="#/terminos">Términos</a></p>
     <div class="homebar"><button id="btnNewGroup" class="btn-primary btn-block">Crear grupo</button></div>
   </section>
 
@@ -174,17 +175,38 @@
       </button>
     </div>
     <p class="fine">Por grupo. Cancela cuando quieras. Tus datos nunca se borran.</p>
+    <p class="fine small">Al pagar aceptas los <a href="#/terminos">Términos</a> y la <a href="#/privacidad">Política de privacidad</a>.</p>
     <button id="payViewData" class="linkbtn">Seguir viendo mis datos</button>
+  </section>
+
+  <!-- LEGAL: privacidad y términos -->
+  <section id="v-legal" class="view" hidden>
+    <header class="top nav">
+      <button id="legalBack" class="iconbtn" aria-label="Volver">‹</button>
+      <div class="navtitle"><h1 id="legalTitle">Legal</h1></div>
+    </header>
+    <div id="legalBody" class="legal"></div>
   </section>
 
   <!-- CONFIRMACIÓN DE PAGO (Stripe redirige aquí) -->
   <section id="v-pagook" class="view" hidden>
     <header class="top center">
-      <h1>¡Pago recibido! 🎉</h1>
-      <p class="sub" id="pagoOkSub">Tu suscripción está activa.</p>
+      <h1 id="pagoOkTitle">Confirma tu pago</h1>
+      <p class="sub" id="pagoOkSub">Escribe el correo con el que pagaste en Stripe para activar tu plan.</p>
     </header>
-    <p class="fine">Ya puedes seguir anotando cuotas sin límites.<br>Recibirás tu recibo por correo.</p>
-    <button id="pagoOkGo" class="btn-primary btn-block">Volver a mis grupos</button>
+    <div id="pagoOkForm">
+      <input id="pagoOkEmail" type="email" inputmode="email" autocomplete="email" placeholder="tu@correo.com" autocapitalize="off">
+      <div style="height:14px"></div>
+      <button id="pagoOkVerify" class="btn-primary btn-block">Verificar pago</button>
+      <p class="fine" id="pagoOkErr" hidden></p>
+      <p class="fine small">El recibo de Stripe llega a ese mismo correo.<br><a href="#/terminos">Términos</a> · <a href="#/privacidad">Privacidad</a></p>
+    </div>
+    <div id="pagoOkDone" hidden>
+      <p class="fine center" style="font-size:40px">🎉</p>
+      <p class="sub center" id="pagoOkPlan">Tu suscripción está activa.</p>
+      <p class="fine">Ya puedes seguir anotando cuotas sin límites.</p>
+      <button id="pagoOkGo" class="btn-primary btn-block">Volver a mis grupos</button>
+    </div>
   </section>
 
   <!-- VISTA COMPARTIDA (solo lectura) -->

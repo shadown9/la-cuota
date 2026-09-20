@@ -13,7 +13,7 @@ function load(){
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
       s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; return s; }
   }catch(e){}
-  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, notifyPay:false, ui:{}};
+  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{}};
 }
 function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 function save(){ persist(); nubePushSoon(); }
@@ -601,18 +601,102 @@ function payGo(which){
   S.pendingPlan = which; save();
   window.open(STRIPE_LINKS[which], '_blank');
 }
-/* Stripe redirige aquí después del pago: #/pago-ok */
+/* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
+var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
+function payCheck(email){
+  return fetch(PAY_VERIFY_URL + '/sub?email=' + encodeURIComponent(email), {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .catch(function(){ return {active:false, offline:true}; });
+}
+/* Stripe redirige aquí después del pago: #/pago-ok.
+   Solo se activa si el verificador confirma un pago real. */
 function pagoOk(){
   var plan = (S.pendingPlan==='yearly') ? 'yearly' : 'monthly';
-  S.pendingPlan = null;
-  S.payActive = true; S.payPlan = plan; S.payAt = Date.now(); save();
+  S.pendingPlan = null; save();
   location.hash='';
+  $('pagoOkForm').hidden = false;
+  $('pagoOkDone').hidden = true;
+  $('pagoOkErr').hidden = true;
+  $('pagoOkEmail').value = S.payEmail || '';
+  var btn = $('pagoOkVerify');
+  btn.onclick = function(){
+    var email = $('pagoOkEmail').value.trim();
+    if(!email || email.indexOf('@')<0){
+      $('pagoOkErr').hidden = false;
+      $('pagoOkErr').textContent = 'Escribe un correo válido.';
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Verificando…';
+    payCheck(email).then(function(res){
+      btn.disabled = false; btn.textContent = 'Verificar pago';
+      if(res && res.active){
+        S.payActive = true;
+        S.payPlan = (res.plan==='anual') ? 'yearly' : (res.plan==='mensual' ? 'monthly' : plan);
+        S.payEmail = email; S.payAt = Date.now(); save();
+        $('pagoOkForm').hidden = true;
+        $('pagoOkDone').hidden = false;
+        $('pagoOkPlan').textContent = S.payPlan==='yearly'
+          ? 'Plan anual activo — $20/año por grupo.'
+          : 'Plan mensual activo — $2/mes por grupo.';
+      }else{
+        $('pagoOkErr').hidden = false;
+        $('pagoOkErr').textContent = (res && res.offline)
+          ? 'Sin conexión. Conéctate a internet e inténtalo de nuevo.'
+          : 'No encontramos un pago activo con ese correo. Revisa que sea el mismo con el que pagaste en Stripe.';
+      }
+    });
+  };
   show('v-pagook');
-  $('pagoOkSub').textContent = plan==='yearly'
-    ? 'Plan anual activo — $20/año por grupo.'
-    : 'Plan mensual activo — $2/mes por grupo.';
 }
 $('pagoOkGo').addEventListener('click', renderHome);
+
+/* ---------- LEGAL (discreto: solo enlaces en el pie) ---------- */
+var LEGAL = {
+priv: {
+  t: 'Política de privacidad',
+  h: '<p class="date">Vigente desde el 20 de septiembre de 2026.</p>'+
+  '<h3>Qué datos guardamos</h3>'+
+  '<p>Los datos de tu grupo (nombre, miembros, montos y pagos) se guardan en tu teléfono. Son tuyos.</p>'+
+  '<p>Si usas el enlace de tesorero para sincronizar entre teléfonos, esos datos se copian a nuestra base de datos en la nube, protegidos por una llave secreta que solo tú tienes. Sin esa llave, nadie puede leerlos.</p>'+
+  '<p>Para verificar tu suscripción guardamos tu correo electrónico y el estado de tu pago. Los pagos los procesa Stripe de forma segura: nosotros nunca vemos ni guardamos tu tarjeta.</p>'+
+  '<h3>Lo que no hacemos</h3>'+
+  '<p>No vendemos tus datos. No mostramos anuncios. No usamos rastreadores de terceros.</p>'+
+  '<h3>Tus derechos</h3>'+
+  '<p>Puedes borrar los datos de un grupo desde la app cuando quieras. Si quieres que borremos tu correo de nuestros registros, escríbenos a hola@lacuota.org.</p>'+
+  '<h3>Seguridad</h3>'+
+  '<p>Tu enlace de tesorero es tu llave: quien lo tenga puede ver y editar tu grupo. Guárdalo como una contraseña y no lo compartas con quien no deba verlo.</p>'+
+  '<h3>Cambios</h3>'+
+  '<p>Si cambiamos esta política, lo avisaremos dentro de la app.</p>'
+},
+term: {
+  t: 'Términos del servicio',
+  h: '<p class="date">Vigente desde el 20 de septiembre de 2026.</p>'+
+  '<h3>El servicio</h3>'+
+  '<p>La Cuota es una aplicación para llevar las cuotas de dinero de tu grupo —familia, amigos, equipo— sin libreta.</p>'+
+  '<h3>Precio</h3>'+
+  '<p>30 días gratis por grupo desde que lo creas. Después: $2 USD al mes o $20 USD al año por grupo. Precios en dólares americanos.</p>'+
+  '<h3>Pagos</h3>'+
+  '<p>Los pagos los procesa Stripe de forma segura. Al pagar también aceptas los términos de Stripe.</p>'+
+  '<h3>Cancelación</h3>'+
+  '<p>Puedes cancelar cuando quieras desde el enlace de tu recibo de Stripe o escribiéndonos a hola@lacuota.org. Mantienes el acceso hasta que termine el período que ya pagaste. No hay reembolsos por períodos parciales.</p>'+
+  '<h3>Tu responsabilidad</h3>'+
+  '<p>El enlace de tesorero es tu llave de acceso y tu respaldo: guárdalo bien. Eres responsable de lo que se haga con tus enlaces.</p>'+
+  '<h3>Disponibilidad</h3>'+
+  '<p>Hacemos todo lo posible por mantener el servicio funcionando, pero no podemos garantizar que nunca falle. Tus datos principales viven en tu teléfono.</p>'+
+  '<h3>Cambios</h3>'+
+  '<p>Podemos actualizar estos términos; los cambios importantes se avisarán dentro de la app.</p>'+
+  '<h3>Contacto y ley aplicable</h3>'+
+  '<p>Escríbenos a hola@lacuota.org. Estos términos se rigen por las leyes del estado de Nueva Jersey, EE.&nbsp;UU.</p>'
+}};
+function showLegal(which){
+  var L = LEGAL[which] || LEGAL.priv;
+  $('legalTitle').textContent = L.t;
+  $('legalBody').innerHTML = L.h;
+  show('v-legal');
+}
+$('legalBack').addEventListener('click', function(){
+  if(history.length>1){ history.back(); } else { location.hash=''; renderHome(); }
+});
 
 /* ---------- COMPARTIR ---------- */
 function baseUrl(){
@@ -849,6 +933,8 @@ $('btnRecoverHome').addEventListener('click', recoverSheet);
 function route(){
   var h=location.hash||'';
   if(h.indexOf('#/pago-ok')===0){ pagoOk(); return; }
+  if(h==='#/privacidad'){ showLegal('priv'); return; }
+  if(h==='#/terminos'){ showLegal('term'); return; }
   if(h.indexOf('#/ver/')===0){ showReadonly(h.slice(6)); return; }
   if(h.indexOf('#/g/')===0){
     var gid=h.slice(4);
@@ -876,6 +962,15 @@ if('serviceWorker' in navigator){
   });
 }
 route();
+/* Re-verificar la suscripción en silencio al arrancar: si Stripe dice que
+   ya no está activa, se desactiva sola (nadie la mantiene a mano). */
+if(S.payActive && S.payEmail){
+  payCheck(S.payEmail).then(function(res){
+    if(res && !res.offline && !res.active){
+      S.payActive = false; save(); route();
+    }
+  });
+}
 /* Grupos de antes de la llave: seguir el puntero migratedTo de la nube
    y mover los datos locales a la dirección nueva (una sola vez). */
 function migrarLegados(){
