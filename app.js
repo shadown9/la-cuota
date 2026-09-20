@@ -310,7 +310,7 @@ function obStep(n){
 
   if(step==='nombre'){
     q.textContent='¿Cómo se llama tu grupo?';
-    f.innerHTML='<input id="obIn" type="text" placeholder="Junta de Vecinos Los Prados" maxlength="60" autocomplete="off">';
+    f.innerHTML='<input id="obIn" type="text" placeholder="Ej: Mi grupo de ahorro" maxlength="60" autocomplete="off">';
     $('obIn').value=obDraft.name;
     setTimeout(function(){ $('obIn').focus(); },50);
   }else if(step==='monto'){
