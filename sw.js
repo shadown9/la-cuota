@@ -1,5 +1,5 @@
 /* La Cuota — service worker: funciona sin conexión */
-var CACHE = 'lacuota-v18';
+var CACHE = 'lacuota-v19';
 var FILES = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ var FILES = [
   './app.js',
   './logica.js',
   './nube.js',
+  './vendor/jspdf.umd.min.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

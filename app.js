@@ -638,43 +638,63 @@ function showReadonly(payload){
 }
 
 /* ---------- reporte PDF (vía impresión) ---------- */
-function printReport(){
+function downloadPDF(){
   var g=S.groups[curGid]; if(!g) return;
+  if(!window.jspdf){ toast('No se pudo generar el PDF.'); return; }
   var mems=membersOf(curGid);
   var pm=paidMap(curGid, curMonth);
   var sum=sumFor(curGid, curMonth);
-  var rows=mems.map(function(m){
-    var ts=pm[m.id];
-    return '<tr><td>'+esc(m.name)+'</td><td>'+esc(m.phone||'—')+'</td>'+
-      '<td>'+(ts?'Pagó':'Debe')+'</td>'+
-      '<td>'+(ts?L.fmtMoney(g.amount,g.currency):'—')+'</td>'+
-      '<td>'+(ts?new Date(ts).toLocaleDateString('es-DO'):'—')+'</td></tr>';
-  }).join('');
-  var old=document.getElementById('printReport'); if(old) old.remove();
-  var el=document.createElement('div');
-  el.id='printReport';
-  el.innerHTML=
-    '<h1>'+esc(g.name)+'</h1>'+
-    '<p class="pr-sub">'+esc(L.periodLabel(curMonth,g))+' · '+esc(L.freqLabel(g))+' · '+esc(L.fmtMoney(g.amount,g.currency))+' por miembro</p>'+
-    '<table><thead><tr><th>Miembro</th><th>Teléfono</th><th>Estado</th><th>Monto</th><th>Fecha de pago</th></tr></thead>'+
-    '<tbody>'+(rows||'<tr><td colspan="5">Sin miembros.</td></tr>')+'</tbody></table>'+
-    '<p class="pr-tot">Recaudado: '+esc(L.fmtMoney(sum.collected,g.currency))+' de '+esc(L.fmtMoney(sum.total,g.currency))+
-    ' · Faltan: '+esc(L.fmtMoney(sum.missing,g.currency))+' · '+sum.countPaid+' de '+sum.countTotal+' pagaron</p>'+
-    '<p class="pr-foot">Organizado con La Cuota · '+new Date().toLocaleDateString('es-DO')+'</p>';
-  document.body.appendChild(el);
-  document.body.classList.add('printing');
-  var done=false;
-  function cleanup(){
-    if(done) return; done=true;
-    document.body.classList.remove('printing'); el.remove();
-    if(window.onafterprint===cleanup) window.onafterprint=null;
+  var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+  var M=14;
+  var COLS=[{t:'Miembro',w:58},{t:'Teléfono',w:34},{t:'Estado',w:24},{t:'Monto',w:30},{t:'Fecha de pago',w:36}];
+  var y=0;
+  function header(){
+    y=18;
+    doc.setTextColor(0,0,0);
+    doc.setFont('helvetica','bold'); doc.setFontSize(18);
+    doc.text(String(g.name).slice(0,60), M, y); y+=8;
+    doc.setFont('helvetica','normal'); doc.setFontSize(11); doc.setTextColor(110,110,110);
+    doc.text(L.periodLabel(curMonth,g)+' · '+L.freqLabel(g)+' · '+L.fmtMoney(g.amount,g.currency)+' por miembro', M, y);
+    doc.setTextColor(0,0,0); y+=10;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setFillColor(235,235,235);
+    // Primero todos los fondos: en el PDF el texto y el relleno comparten
+    // el mismo color, así que los textos van después para no teñir los
+    // rectángulos de negro.
+    var x=M;
+    COLS.forEach(function(c){ doc.rect(x, y-4.5, c.w, 7.5, 'FD'); x+=c.w; });
+    x=M; doc.setTextColor(0,0,0);
+    COLS.forEach(function(c){ doc.text(c.t, x+2, y); x+=c.w; });
+    y+=6;
+    doc.setFont('helvetica','normal');
   }
-  // Limpia cuando el diálogo de impresión se cierra (Android tarda más
-  // que el escritorio en generar la vista previa; no se puede usar un
-  // tiempo fijo porque el reporte desaparecería antes de imprimirse).
-  window.onafterprint=cleanup;
-  setTimeout(cleanup, 60000); // respaldo por si el navegador no avisa
-  window.print();
+  header();
+  doc.setFontSize(10);
+  if(!mems.length){ doc.text('Sin miembros.', M, y+4); y+=8; }
+  mems.forEach(function(m){
+    if(y>272){ doc.addPage(); header(); doc.setFontSize(10); }
+    var ts=pm[m.id];
+    var cells=[m.name, m.phone||'—', ts?'Pagó':'Debe',
+      ts?L.fmtMoney(g.amount,g.currency):'—',
+      ts?new Date(ts).toLocaleDateString('es-DO'):'—'];
+    var x=M;
+    cells.forEach(function(txt,i){
+      var w=COLS[i].w;
+      doc.rect(x, y-4.5, w, 7.5);
+      var t=doc.splitTextToSize(String(txt), w-4)[0]||'—';
+      doc.text(t, x+2, y); x+=w;
+    });
+    y+=7.5;
+  });
+  y+=8;
+  if(y>262){ doc.addPage(); y=18; }
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(0,0,0);
+  doc.text('Recaudado: '+L.fmtMoney(sum.collected,g.currency)+' de '+L.fmtMoney(sum.total,g.currency), M, y); y+=7;
+  doc.text('Faltan: '+L.fmtMoney(sum.missing,g.currency)+'  ·  '+sum.countPaid+' de '+sum.countTotal+' pagaron', M, y); y+=10;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(130,130,130);
+  doc.text('Organizado con La Cuota · '+new Date().toLocaleDateString('es-DO'), M, y);
+  var fname=('LaCuota-'+g.name+'-'+curMonth).replace(/[^\w áéíóúñü-]+/gi,'').slice(0,60)+'.pdf';
+  doc.save(fname);
+  toast('PDF descargado.');
 }
 
 /* ---------- CSV ---------- */
@@ -702,7 +722,7 @@ function moreSheet(){
   $('moMem').addEventListener('click', function(){ closeSheet(); openMembers(); });
   $('moShare').addEventListener('click', function(){ closeSheet(); shareSheet(); });
   $('moHist').addEventListener('click', function(){ closeSheet(); openHistory(); });
-  $('moPdf').addEventListener('click', function(){ closeSheet(); printReport(); });
+  $('moPdf').addEventListener('click', function(){ closeSheet(); downloadPDF(); });
   $('moCsv').addEventListener('click', function(){ closeSheet(); exportCSV(); });
   $('moSet').addEventListener('click', function(){ closeSheet(); openSettings(); });
 }
