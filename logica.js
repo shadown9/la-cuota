@@ -29,14 +29,15 @@
 
   // Clave del período que contiene `date`.
   // mes: "YYYY-MM" (corte=1 -> mes calendario; corte=15 -> del 15 al 14).
-  // semana: "sYYYY-MM-DD" del día de cierre (cutWeekday 0=domingo..6=sábado más reciente).
+  // semana: "sYYYY-MM-DD" del día de cierre (cutWeekday 0=domingo..6=sábado);
+  // la clave es el cierre de la semana que contiene la fecha (lunes..domingo si cierra domingo).
   // dia: "dYYYY-MM-DD".
   L.periodKey = function (date, g) {
     var f = L.freqOf(g);
     if (f === 'dia') return 'd' + dateKey(date);
     if (f === 'semana') {
       var wd = Math.min(Math.max(parseInt(g && g.cutWeekday, 10) || 0, 0), 6);
-      var d = addDays(date, -((date.getDay() - wd + 7) % 7));
+      var d = addDays(date, (wd - date.getDay() + 7) % 7);
       return 's' + dateKey(d);
     }
     var c = Math.min(Math.max(parseInt(g && g.cutDay, 10) || 1, 1), 28);

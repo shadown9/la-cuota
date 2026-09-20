@@ -241,7 +241,7 @@ function obStep(n){
   var step=obSteps[n], q=$('obQ'), f=$('obField'), nx=$('obNext');
   var last=(n===obSteps.length-1);
   $('obSkip').style.display = last ? 'none' : 'block';
-  nx.textContent = last ? 'Crear grupo' : 'Continuar';
+  nx.textContent = (last && (step!=='frecuencia' || obDraft.freq==='dia')) ? 'Crear grupo' : 'Continuar';
 
   if(step==='nombre'){
     q.textContent='¿Cómo se llama tu grupo?';
@@ -266,6 +266,7 @@ function obStep(n){
     $('obFreq').querySelectorAll('button').forEach(function(b){
       b.addEventListener('click', function(){
         obDraft.freq=b.getAttribute('data-f'); paintSegF('obFreq', obDraft.freq, 'data-f');
+        nx.textContent = (obDraft.freq==='dia') ? 'Crear grupo' : 'Continuar';
       });
     });
   }else if(step==='diaSemana'){
@@ -298,8 +299,9 @@ function obStep(n){
       if(!a||a<=0){ toast('Escribe el monto de la cuota.'); return; }
       obDraft.amount=a; obStep(n+1);
     }else if(step==='frecuencia'){
+      if(obDraft.freq==='dia'){ finishOnboarding(); return; }
       obSteps=['nombre','monto','frecuencia'].concat(
-        obDraft.freq==='semana' ? ['diaSemana'] : obDraft.freq==='mes' ? ['diaMes'] : []);
+        obDraft.freq==='semana' ? ['diaSemana'] : ['diaMes']);
       obStep(n+1);
     }else{
       if(step==='diaMes'){

@@ -20,9 +20,12 @@ eq(L.periodKey(new Date(2026, 8, 20), {}), '2026-09', 'grupo viejo sin freq = me
 eq(L.periodKey(new Date(2026, 8, 20), gd), 'd2026-09-20', 'diaria');
 eq(L.periodKey(new Date(2026, 11, 31), gd), 'd2026-12-31', 'diaria fin de año');
 eq(L.periodKey(new Date(2026, 8, 20), gs), 's2026-09-20', 'semanal: domingo 20 cierra el 20');
-eq(L.periodKey(new Date(2026, 8, 19), gs), 's2026-09-13', 'semanal: sábado 19 cae en semana del 13');
-eq(L.periodKey(new Date(2026, 8, 21), gs), 's2026-09-20', 'semanal: lunes 21 cae en semana del 20');
-eq(L.periodKey(new Date(2026, 8, 19), {freq:'semana',cutWeekday:5}), 's2026-09-18', 'semanal: sábado 19 con cierre viernes -> viernes 18');
+eq(L.periodKey(new Date(2026, 8, 19), gs), 's2026-09-20', 'semanal: sábado 19 cierra domingo 20');
+eq(L.periodKey(new Date(2026, 8, 21), gs), 's2026-09-27', 'semanal: lunes 21 abre semana que cierra 27');
+eq(L.periodKey(new Date(2026, 8, 26), gs), 's2026-09-27', 'semanal: sábado 26 cierra domingo 27');
+eq(L.periodKey(new Date(2026, 8, 19), {freq:'semana',cutWeekday:5}), 's2026-09-25', 'semanal: sábado 19 con cierre viernes -> viernes 25');
+eq(L.periodKey(new Date(2026, 8, 23), {freq:'semana',cutWeekday:3}), 's2026-09-23', 'semanal: miércoles 23 cierra miércoles 23');
+eq(L.periodKey(new Date(2026, 8, 24), {freq:'semana',cutWeekday:3}), 's2026-09-30', 'semanal: jueves 24 cierra miércoles 30');
 eq(L.prevPeriod('2026-09', gm), '2026-08', 'prevPeriod mensual');
 eq(L.prevPeriod('2026-01', gm), '2025-12', 'prevPeriod mensual año');
 eq(L.nextPeriod('2026-12', gm), '2027-01', 'nextPeriod mensual año');
