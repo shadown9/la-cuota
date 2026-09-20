@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="La Cuota — las cuotas de tu grupo, sin libreta.">
+<title>La Cuota</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" href="icons/favicon.ico">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- INICIO -->
+  <section id="v-home" class="view" hidden>
+    <header class="top">
+      <h1>La Cuota</h1>
+      <p class="sub">Las cuotas de tu grupo, sin libreta.</p>
+    </header>
+    <div id="trialBanner" class="trialbanner" hidden></div>
+    <div id="groupList"></div>
+    <div id="homeEmpty" class="empty" hidden>
+      <p>No tienes grupos todavía.<br>Crea el primero en menos de un minuto.</p>
+    </div>
+    <button id="btnNewGroup" class="btn-primary btn-block">Crear grupo</button>
+    <button id="btnFaqHome" class="linkbtn">Preguntas frecuentes</button>
+  </section>
+
+  <!-- GRUPO / MES -->
+  <section id="v-group" class="view" hidden>
+    <header class="top nav">
+      <button id="btnBack" class="iconbtn" aria-label="Volver">‹</button>
+      <div class="navtitle">
+        <h1 id="gName">Grupo</h1>
+        <p class="sub" id="gMeta"></p>
+      </div>
+      <button id="btnMore" class="iconbtn" aria-label="Más opciones">•••</button>
+    </header>
+
+    <div class="monthnav">
+      <button id="mPrev" class="iconbtn" aria-label="Mes anterior">‹</button>
+      <div id="mLabel" class="monthlabel"></div>
+      <button id="mNext" class="iconbtn" aria-label="Mes siguiente">›</button>
+    </div>
+
+    <div class="totals">
+      <div class="total"><span class="tnum" id="tCollected">—</span><span class="tlab">Recaudado</span></div>
+      <div class="total"><span class="tnum warn" id="tMissing">—</span><span class="tlab">Faltan</span></div>
+      <div class="total"><span class="tnum" id="tCount">—</span><span class="tlab">Al día</span></div>
+    </div>
+
+    <div id="memberList" class="members"></div>
+
+    <div class="actions">
+      <button id="btnRemindAll" class="btn-ghost btn-block">Recordar a los que deben</button>
+      <button id="btnSummary" class="btn-ghost btn-block">Resumen para WhatsApp</button>
+    </div>
+  </section>
+
+  <!-- ONBOARDING -->
+  <section id="v-ob" class="view" hidden>
+    <div class="ob-dots" id="obDots"></div>
+    <h1 id="obQ" class="ob-q"></h1>
+    <div id="obField"></div>
+    <button id="obNext" class="btn-primary btn-block">Continuar</button>
+    <button id="obSkip" class="linkbtn">Omitir</button>
+  </section>
+
+  <!-- MIEMBROS -->
+  <section id="v-members" class="view" hidden>
+    <header class="top nav">
+      <button id="memBack" class="iconbtn" aria-label="Volver">‹</button>
+      <div class="navtitle"><h1>Miembros</h1></div>
+      <span class="iconbtn"></span>
+    </header>
+    <div id="memList" class="members"></div>
+    <div class="formrow">
+      <input id="memName" type="text" placeholder="Nombre" autocomplete="off" maxlength="40">
+      <input id="memPhone" type="tel" placeholder="Teléfono (con código país)" autocomplete="off" inputmode="tel" maxlength="20">
+    </div>
+    <button id="memAdd" class="btn-primary btn-block">Agregar miembro</button>
+  </section>
+
+  <!-- HISTORIAL -->
+  <section id="v-hist" class="view" hidden>
+    <header class="top nav">
+      <button id="histBack" class="iconbtn" aria-label="Volver">‹</button>
+      <div class="navtitle"><h1>Historial</h1></div>
+      <span class="iconbtn"></span>
+    </header>
+    <div id="histList"></div>
+  </section>
+
+  <!-- AJUSTES -->
+  <section id="v-settings" class="view" hidden>
+    <header class="top nav">
+      <button id="setBack" class="iconbtn" aria-label="Volver">‹</button>
+      <div class="navtitle"><h1>Ajustes</h1></div>
+      <span class="iconbtn"></span>
+    </header>
+    <label class="flabel">Nombre del grupo</label>
+    <input id="setName" type="text" maxlength="60">
+    <label class="flabel">Cuota por miembro</label>
+    <input id="setAmount" type="number" min="1" inputmode="numeric">
+    <label class="flabel">Moneda</label>
+    <div class="seg" id="setCurrency">
+      <button data-cur="RD$">RD$</button>
+      <button data-cur="USD">US$</button>
+    </div>
+    <label class="flabel">Día de corte del mes</label>
+    <input id="setCut" type="number" min="1" max="28" inputmode="numeric">
+    <button id="setSave" class="btn-primary btn-block">Guardar</button>
+    <button id="setDelete" class="btn-danger-ghost btn-block">Eliminar grupo</button>
+  </section>
+
+  <!-- PREGUNTAS -->
+  <section id="v-faq" class="view" hidden>
+    <header class="top nav">
+      <button id="faqBack" class="iconbtn" aria-label="Volver">‹</button>
+      <div class="navtitle"><h1>Preguntas</h1></div>
+      <span class="iconbtn"></span>
+    </header>
+    <div id="faqList"></div>
+  </section>
+
+  <!-- PAYWALL -->
+  <section id="v-pay" class="view" hidden>
+    <header class="top center">
+      <h1>Tu prueba terminó</h1>
+      <p class="sub">Sigue llevando tus cuotas por menos de lo que cuesta un café.</p>
+    </header>
+    <div class="pricecards">
+      <button class="pricecard" id="payMonthly">
+        <span class="pname">Mensual</span>
+        <span class="pprice">$2<span class="pper">/mes</span></span>
+      </button>
+      <button class="pricecard best" id="payYearly">
+        <span class="pname">Anual <em>2 meses gratis</em></span>
+        <span class="pprice">$20<span class="pper">/año</span></span>
+      </button>
+    </div>
+    <p class="fine">Por grupo. Cancela cuando quieras. Tus datos nunca se borran.</p>
+    <button id="payViewData" class="linkbtn">Seguir viendo mis datos</button>
+  </section>
+
+  <!-- VISTA COMPARTIDA (solo lectura) -->
+  <section id="v-readonly" class="view" hidden>
+    <header class="top center">
+      <h1 id="roName"></h1>
+      <p class="sub" id="roMonth"></p>
+    </header>
+    <div class="totals">
+      <div class="total"><span class="tnum" id="roCollected">—</span><span class="tlab">Recaudado</span></div>
+      <div class="total"><span class="tnum warn" id="roMissing">—</span><span class="tlab">Faltan</span></div>
+    </div>
+    <h2 class="h2">Pagaron</h2>
+    <div id="roPaid" class="members ro"></div>
+    <h2 class="h2">Deben</h2>
+    <div id="roOwed" class="members ro"></div>
+    <p class="fine center">Organizado con La Cuota</p>
+    <button id="roCta" class="btn-primary btn-block">Crear mi grupo gratis</button>
+  </section>
+
+</div>
+
+<div id="sheetWrap" class="sheetwrap" hidden>
+  <div class="sheetback" id="sheetBack"></div>
+  <div class="sheet" id="sheet" role="dialog"></div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="logica.js"></script>
+<script src="nube.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
