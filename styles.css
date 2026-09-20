@@ -44,7 +44,7 @@ body{
 }
 
 /* Grupos en inicio */
-.grouplist .gitem{
+.gitem{
   display:flex;align-items:center;gap:12px;width:100%;
   background:none;border:none;border-bottom:1px solid var(--line);
   padding:18px 2px;cursor:pointer;text-align:left;
@@ -54,8 +54,8 @@ body{
   display:flex;align-items:center;justify-content:center;
   font-weight:700;font-size:18px;flex:none}
 .gitem .ginfo{flex:1;min-width:0}
-.gitem .gname{font-weight:600;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gitem .gstat{color:var(--muted);font-size:14px;margin-top:2px}
+.gitem .gname{display:block;font-weight:600;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gitem .gstat{display:block;color:var(--muted);font-size:14px;margin-top:2px}
 .gitem .gchev{color:var(--muted);font-size:20px}
 .empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:16px}
 
@@ -81,8 +81,8 @@ body{
 .mrow .avatar{width:46px;height:46px;border-radius:50%;background:var(--soft);
   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:19px;flex:none}
 .minfo{flex:1;min-width:0}
-.mname{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mstat{font-size:14px;margin-top:2px;color:var(--muted)}
+.mname{display:block;font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mstat{display:block;font-size:14px;margin-top:2px;color:var(--muted)}
 .mstat.paid{color:var(--accent)}
 .toggle{
   width:34px;height:34px;border-radius:50%;flex:none;
