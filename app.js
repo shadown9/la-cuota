@@ -120,7 +120,7 @@ function trialDaysLeft(){
 function locked(){ return S.trialStart>0 && trialDaysLeft()<=0 && !S.payActive; }
 
 /* ---------- navegación ---------- */
-var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-readonly'];
+var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly'];
 function show(id){
   VIEWS.forEach(function(v){ $(v).hidden = (v!==id); });
   window.scrollTo(0,0);
@@ -589,18 +589,30 @@ function renderFaq(from){
 }
 
 /* ---------- PAYWALL ---------- */
+var STRIPE_LINKS = {
+  monthly: 'https://buy.stripe.com/28E8wI8AD1iGdK413kbV600',
+  yearly:  'https://buy.stripe.com/14AcMYbMP7H45dy5jAbV601'
+};
 function renderPay(){
   show('v-pay');
 }
-function paySoon(which){
-  openSheet('<h3>Suscripción</h3>'+
-    '<p class="fine" style="text-align:center;margin:6px 0 4px">Los pagos se activan muy pronto.<br>Te avisamos en cuanto estén listos.</p>'+
-    '<button class="btn-primary btn-block" id="payNotify">Avísame cuando esté listo</button>');
-  $('payNotify').addEventListener('click', function(){
-    S.notifyPay=true; save(); closeSheet();
-    toast('¡Anotado! Te avisaremos.');
-  });
+/* Abre el enlace de pago real de Stripe (modo live) */
+function payGo(which){
+  S.pendingPlan = which; save();
+  window.open(STRIPE_LINKS[which], '_blank');
 }
+/* Stripe redirige aquí después del pago: #/pago-ok */
+function pagoOk(){
+  var plan = (S.pendingPlan==='yearly') ? 'yearly' : 'monthly';
+  S.pendingPlan = null;
+  S.payActive = true; S.payPlan = plan; S.payAt = Date.now(); save();
+  location.hash='';
+  show('v-pagook');
+  $('pagoOkSub').textContent = plan==='yearly'
+    ? 'Plan anual activo — $20/año por grupo.'
+    : 'Plan mensual activo — $2/mes por grupo.';
+}
+$('pagoOkGo').addEventListener('click', renderHome);
 
 /* ---------- COMPARTIR ---------- */
 function baseUrl(){
@@ -790,8 +802,8 @@ $('setDelete').addEventListener('click', function(){
     renderHome(); toast('Grupo eliminado.');
   }else{ b.dataset.confirm='1'; b.textContent='Toca de nuevo para eliminar'; }
 });
-$('payMonthly').addEventListener('click', function(){ paySoon('monthly'); });
-$('payYearly').addEventListener('click', function(){ paySoon('yearly'); });
+$('payMonthly').addEventListener('click', function(){ payGo('monthly'); });
+$('payYearly').addEventListener('click', function(){ payGo('yearly'); });
 $('payViewData').addEventListener('click', renderHome);
 $('roCta').addEventListener('click', function(){ location.hash=''; locked()?renderPay():startOnboarding(); });
 
@@ -836,6 +848,7 @@ $('btnRecoverHome').addEventListener('click', recoverSheet);
 /* ---------- arranque ---------- */
 function route(){
   var h=location.hash||'';
+  if(h.indexOf('#/pago-ok')===0){ pagoOk(); return; }
   if(h.indexOf('#/ver/')===0){ showReadonly(h.slice(6)); return; }
   if(h.indexOf('#/g/')===0){
     var gid=h.slice(4);
