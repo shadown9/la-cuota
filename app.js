@@ -859,13 +859,15 @@ function moreSheet(){
     '<button class="sopt" id="moHist">🕘&nbsp; Historial</button>'+
     '<button class="sopt" id="moPdf">📄&nbsp; Reporte en PDF</button>'+
     '<button class="sopt" id="moCsv">⬇&nbsp; Descargar historial (CSV)</button>'+
-    '<button class="sopt" id="moSet">⚙️&nbsp; Ajustes del grupo</button>');
+    '<button class="sopt" id="moSet">⚙️&nbsp; Ajustes del grupo</button>'+
+    '<button class="sopt" id="moSub">💳&nbsp; Administrar suscripción</button>');
   $('moMem').addEventListener('click', function(){ closeSheet(); openMembers(); });
   $('moShare').addEventListener('click', function(){ closeSheet(); shareSheet(); });
   $('moHist').addEventListener('click', function(){ closeSheet(); openHistory(); });
   $('moPdf').addEventListener('click', function(){ closeSheet(); downloadPDF(); });
   $('moCsv').addEventListener('click', function(){ closeSheet(); exportCSV(); });
   $('moSet').addEventListener('click', function(){ closeSheet(); openSettings(); });
+  $('moSub').addEventListener('click', function(){ closeSheet(); manageSub(); });
 }
 
 /* ---------- eventos ---------- */
