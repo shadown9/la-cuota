@@ -64,7 +64,7 @@ function trialDaysLeft(){
 function locked(){ return S.trialStart>0 && trialDaysLeft()<=0 && !S.payActive; }
 
 /* ---------- navegación ---------- */
-var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-settings','v-faq','v-pay','v-readonly'];
+var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-readonly'];
 function show(id){
   VIEWS.forEach(function(v){ $(v).hidden = (v!==id); });
   window.scrollTo(0,0);
@@ -389,9 +389,31 @@ function openHistory(){
     b.innerHTML='<span class="hinfo"><span class="hlabel">'+esc(L.periodLabel(k, g))+'</span>'+
       '<span class="hstat">'+sum.countPaid+' de '+sum.countTotal+' pagaron · '+L.fmtMoney(sum.collected,g.currency)+'</span></span>'+
       '<span class="gchev">›</span>';
-    b.addEventListener('click', function(){ curMonth=k; S.ui['m_'+curGid]=k; save(); renderGroup(); });
+    b.addEventListener('click', function(){ openPeriodDetail(k); });
     list.appendChild(b);
   });
+}
+
+/* ---------- DETALLE DE PERÍODO ---------- */
+function openPeriodDetail(k){
+  var g=S.groups[curGid]; if(!g) return;
+  var mems=membersOf(curGid);
+  var pm=(S.payments[curGid]||{})[k]||{};
+  var sum=L.monthSummary(g, mems, pm);
+  show('v-pdetail');
+  $('pdName').textContent=L.periodLabel(k, g);
+  $('pdSub').textContent=g.name;
+  $('pdCollected').textContent=L.fmtMoney(sum.collected,g.currency);
+  $('pdMissing').textContent=L.fmtMoney(sum.missing,g.currency);
+  $('pdCount').textContent=sum.countPaid+'/'+sum.countTotal;
+  function row(m, st){
+    return '<div class="mrow"><div class="mmain" style="cursor:default">'+
+      '<span class="avatar">'+esc(initials(m.name))+'</span>'+
+      '<span class="minfo"><span class="mname">'+esc(m.name)+'</span>'+
+      '<span class="mstat'+(st==='p'?' paid':'')+'">'+(st==='p'?'Pagó ✓':'Debe '+L.fmtMoney(g.amount,g.currency))+'</span></span></div></div>';
+  }
+  $('pdPaid').innerHTML=sum.paid.length?sum.paid.map(function(m){return row(m,'p');}).join(''):'<div class="empty"><p>Nadie pagó en este período.</p></div>';
+  $('pdOwed').innerHTML=sum.owed.length?sum.owed.map(function(m){return row(m,'o');}).join(''):'<div class="empty"><p>Todos pagaron. 🎉</p></div>';
 }
 
 /* ---------- AJUSTES ---------- */
@@ -635,6 +657,7 @@ $('memBack').addEventListener('click', renderGroup);
 $('memAdd').addEventListener('click', addMember);
 $('memDone').addEventListener('click', renderGroup);
 $('histBack').addEventListener('click', renderGroup);
+$('pdBack').addEventListener('click', openHistory);
 $('setBack').addEventListener('click', renderGroup);
 $('setSave').addEventListener('click', saveSettings);
 $('setDelete').addEventListener('click', function(){
