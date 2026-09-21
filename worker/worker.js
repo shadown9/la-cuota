@@ -31,10 +31,7 @@ function b64urlToBytes(s) {
   return out;
 }
 function b64urlToString(s) {
-  const b = b64urlToBytes(s);
-  let str = '';
-  for (let i = 0; i < b.length; i++) str += String.fromCharCode(b[i]);
-  return decodeURIComponent(escape(str));
+  return new TextDecoder().decode(b64urlToBytes(s));
 }
 function pemToDer(pem) {
   const b64 = pem.replace(/-----BEGIN CERTIFICATE-----/, '')
@@ -170,6 +167,7 @@ async function verifyFirebaseIdToken(idToken, projectId, fetchCerts) {
 /* v63: entrada con Google por PKCE directo (sin Firebase Auth).
    El cliente OAuth web del proyecto (ID público) acepta como URIs de
    redireccionamiento solo los registrados en la consola de Google. */
+const ALLOWED_ORIGINS = ['https://lacuota.org', 'https://www.lacuota.org', 'https://shadown9.github.io'];
 const GOOGLE_OAUTH_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com';
 const GOOGLE_REDIRECT_URIS = ['https://lacuota.org/', 'https://shadown9.github.io/la-cuota/'];
 
@@ -303,11 +301,14 @@ const TRIAL_MS = 30 * 86400000;
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    const _o = req.headers.get('Origin') || '';
+    const j = (obj, st) => json(obj, st, _o);
 
     // Preflight CORS para las llamadas POST desde el navegador
     if (req.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() });
+      return new Response(null, { status: 204, headers: corsHeaders(_o) });
     }
+    /* j() es el alias local de json() con el Origin ya capturado arriba. */
 
     // ---- Prueba gratis por cuenta de Google (la app llama aquí) ----
     // POST /trial {idToken} -> {ok, trialUsed, trialStart, trialExpiresAt, trialActive, trialExpired}
@@ -317,15 +318,15 @@ export default {
     if (url.pathname === '/trial' && req.method === 'POST') {
       const ip = req.headers.get('cf-connecting-ip') || '';
       if (!await checkRateLimit(env, ip)) {
-        return json({ ok: false, reason: 'limite' }, 429);
+        return j({ ok: false, reason: 'limite' }, 429);
       }
       let body = null;
       try { body = await req.json(); } catch (e) { /* noop */ }
       const v = await verifyFirebaseIdToken(
         body && body.idToken, env.FB_PROJECT || 'la-cuota');
-      if (!v.ok) return json({ ok: false, reason: v.reason }, 401);
+      if (!v.ok) return j({ ok: false, reason: v.reason }, 401);
       const st = await trialState(env, v.sub);
-      return json(Object.assign({ ok: true }, st));
+      return j(Object.assign({ ok: true }, st));
     }
 
     // ---- Boleto de un solo uso: regreso automático a la app instalada ----
@@ -339,13 +340,13 @@ export default {
     if (url.pathname === '/ticket' && req.method === 'POST') {
       const ip = req.headers.get('cf-connecting-ip') || '';
       if (!await checkRateLimit(env, ip)) {
-        return json({ ok: false, reason: 'limite' }, 429);
+        return j({ ok: false, reason: 'limite' }, 429);
       }
       let body = null;
       try { body = await req.json(); } catch (e) { /* noop */ }
       const v = await verifyFirebaseIdToken(
         body && body.idToken, env.FB_PROJECT || 'la-cuota');
-      if (!v.ok) return json({ ok: false, reason: v.reason }, 401);
+      if (!v.ok) return j({ ok: false, reason: v.reason }, 401);
       const st = await trialState(env, v.sub);
       const ticket = hexRandom(24);
       await env.SUBS.put('ticket:' + ticket, JSON.stringify({
@@ -354,25 +355,25 @@ export default {
         trialActive: st.trialActive, trialExpired: st.trialExpired,
         createdAt: Date.now(),
       }), { expirationTtl: 300 });
-      return json({ ok: true, ticket: ticket });
+      return j({ ok: true, ticket: ticket });
     }
 
     // POST /ticket/redeem {ticket} -> estado de la prueba (un solo uso).
     if (url.pathname === '/ticket/redeem' && req.method === 'POST') {
       const ip = req.headers.get('cf-connecting-ip') || '';
       if (!await checkRateLimit(env, ip)) {
-        return json({ ok: false, reason: 'limite' }, 429);
+        return j({ ok: false, reason: 'limite' }, 429);
       }
       let body = null;
       try { body = await req.json(); } catch (e) { /* noop */ }
       const ticket = String((body && body.ticket) || '');
       if (!/^[0-9a-f]{48}$/.test(ticket)) {
-        return json({ ok: false, reason: 'boleto' }, 400);
+        return j({ ok: false, reason: 'boleto' }, 400);
       }
       const rec = await env.SUBS.get('ticket:' + ticket, 'json');
-      if (!rec) return json({ ok: false, reason: 'boleto' }, 404);
+      if (!rec) return j({ ok: false, reason: 'boleto' }, 404);
       try { await env.SUBS.delete('ticket:' + ticket); } catch (e) { /* noop */ }
-      return json({ ok: true, sub: rec.sub,
+      return j({ ok: true, sub: rec.sub,
         trialStart: rec.trialStart, trialUsed: rec.trialUsed,
         trialActive: rec.trialActive, trialExpired: rec.trialExpired });
     }
@@ -385,7 +386,7 @@ export default {
     if (url.pathname === '/google/code' && req.method === 'POST') {
       const ip = req.headers.get('cf-connecting-ip') || '';
       if (!await checkRateLimit(env, ip)) {
-        return json({ ok: false, reason: 'limite' }, 429);
+        return j({ ok: false, reason: 'limite' }, 429);
       }
       let body = null;
       try { body = await req.json(); } catch (e) { /* noop */ }
@@ -398,7 +399,7 @@ export default {
       if (!/^[A-Za-z0-9\-_~.\/+%=]{10,1024}$/.test(code) ||
           !/^[A-Za-z0-9\-_~.]{43,128}$/.test(verifier) ||
           GOOGLE_REDIRECT_URIS.indexOf(redirectUri) < 0) {
-        return json({ ok: false, reason: 'entrada' }, 400);
+        return j({ ok: false, reason: 'entrada' }, 400);
       }
       let tok = null;
       try {
@@ -419,28 +420,28 @@ export default {
         /* invalid_grant = código vencido, mal verifier o ya canjeado
            (otra ventana lo usó): la app espera la sesión verificada. */
         if (tok.d && tok.d.error === 'invalid_grant')
-          return json({ ok: false, reason: 'codigo_usado' }, 400);
-        return json({ ok: false, reason: 'google' }, 400);
+          return j({ ok: false, reason: 'codigo_usado' }, 400);
+        return j({ ok: false, reason: 'google' }, 400);
       }
       const v = await verifyGoogleIdToken(tok.d.id_token, GOOGLE_OAUTH_CLIENT_ID);
-      if (!v.ok) return json({ ok: false, reason: 'permiso' }, 401);
+      if (!v.ok) return j({ ok: false, reason: 'permiso' }, 401);
       const st = await trialState(env, v.sub);
-      return json(Object.assign({ ok: true, sub: v.sub }, st));
+      return j(Object.assign({ ok: true, sub: v.sub }, st));
     }
 
     // ---- Verificación de suscripción (la app llama aquí) ----
     if (url.pathname === '/sub' && req.method === 'GET') {
       const email = (url.searchParams.get('email') || '').toLowerCase().trim();
       if (!email || !email.includes('@')) {
-        return json({ active: false, reason: 'email' }, 400);
+        return j({ active: false, reason: 'email' }, 400);
       }
       const rec = await env.SUBS.get('sub:' + await sha256Hex(email), 'json');
-      if (!rec) return json({ active: false });
+      if (!rec) return j({ active: false });
       const active = rec.status === 'active' || rec.status === 'trialing';
-      return json({
+      return j({
         active,
         plan: rec.plan || null,
-        until: rec.currentPeriodEnd || null, // epoch segundos
+        until: rec.currentPeriodEnd || null,
         status: rec.status || null,
       });
     }
@@ -507,14 +508,14 @@ export default {
     if (url.pathname === '/portal' && req.method === 'GET') {
       const email = (url.searchParams.get('email') || '').toLowerCase().trim();
       if (!email || !email.includes('@')) {
-        return json({ error: 'email' }, 400);
+        return j({ error: 'email' }, 400);
       }
       if (!env.STRIPE_SECRET_KEY) {
-        return json({ error: 'no_config' }, 503);
+        return j({ error: 'no_config' }, 503);
       }
       const rec = await env.SUBS.get('sub:' + await sha256Hex(email), 'json');
       if (!rec || !rec.customerId) {
-        return json({ error: 'not_found' }, 404);
+        return j({ error: 'not_found' }, 404);
       }
       try {
         const body = new URLSearchParams({
@@ -531,11 +532,11 @@ export default {
         });
         const data = await r.json();
         if (!r.ok || !data.url) {
-          return json({ error: 'stripe', detail: data.error ? data.error.message : 'sin url' }, 502);
+          return j({ error: 'stripe', detail: data.error ? data.error.message : 'sin url' }, 502);
         }
-        return json({ url: data.url });
+        return j({ url: data.url });
       } catch (e) {
-        return json({ error: 'stripe', detail: 'excepción' }, 502);
+        return j({ error: 'stripe', detail: 'excepción' }, 502);
       }
     }
 
@@ -543,17 +544,19 @@ export default {
   }
 };
 
-function corsHeaders() {
+function corsHeaders(origin) {
+  var o = (origin && ALLOWED_ORIGINS.indexOf(origin) >= 0) ? origin : ALLOWED_ORIGINS[0];
   return {
-    'access-control-allow-origin': '*',
+    'access-control-allow-origin': o,
+    'vary': 'Origin',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type',
   };
 }
-function json(obj, status = 200) {
+function json(obj, status = 200, origin = '') {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: Object.assign({ 'content-type': 'application/json' }, corsHeaders()),
+    headers: Object.assign({ 'content-type': 'application/json' }, corsHeaders(origin)),
   });
 }
 

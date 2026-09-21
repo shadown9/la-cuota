@@ -122,8 +122,9 @@ function avisarConLogo(titulo, cuerpo){
     }).catch(function(){});
   }catch(e){}
 }
-/* Expuesto para diagnóstico y pruebas (no afecta la app) */
-window.__lacuotaNotif = { pedir: pedirPermisoNotif, avisar: avisarConLogo };
+if(location.hostname === 'localhost' || location.hostname === '127.0.0.1'){
+  window.__lacuotaNotif = { pedir: pedirPermisoNotif, avisar: avisarConLogo };
+}
 
 /* Comparte con el menú del teléfono (WhatsApp, Telegram, etc.); si no se puede, copia. */
 function shareText(txt, title, copyMsg){
@@ -192,11 +193,10 @@ function b64urlBytes(bytes){
 }
 function pkceRandom(nBytes){
   var b = new Uint8Array(nBytes);
-  try{
-    if(window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(b);
-    else throw 0;
-  }catch(e){
-    for(var i=0;i<nBytes;i++) b[i] = Math.floor(Math.random()*256);
+  if(window.crypto && window.crypto.getRandomValues){
+    window.crypto.getRandomValues(b);
+  } else {
+    throw new Error('crypto no disponible');
   }
   return b64urlBytes(b);
 }
@@ -922,7 +922,9 @@ function saveSettings(){
   var g=S.groups[curGid]; if(!g) return;
   var f=L.freqOf(g);
   var name=$('setName').value.trim(), amount=parseInt($('setAmount').value,10);
-  var cur=$('setCurrency').querySelector('button.on').getAttribute('data-cur');
+  var curBtn=$('setCurrency').querySelector('button.on');
+  if(!curBtn){ toast('Selecciona una moneda.'); return; }
+  var cur=curBtn.getAttribute('data-cur');
   if(!name){ toast('El grupo necesita un nombre.'); return; }
   if(!amount||amount<=0){ toast('Revisa el monto.'); return; }
   if(f==='mes'){
@@ -1059,7 +1061,8 @@ function reintentarAbrir(url){
   closeSheet();
   try{ window.open(url, '_blank'); }catch(e){}
 }
-/* Gancho para pruebas: expone el flujo de suscripción sin romper el encapsulado */
+/* Gancho para pruebas: solo disponible en entorno local */
+if(location.hostname === 'localhost' || location.hostname === '127.0.0.1'){
 window.__lacuotaSub = {
   manage: function(){ manageSub(); },
   go: function(){ subEmailGo(); },
@@ -1083,6 +1086,7 @@ window.__lacuotaSub = {
   canjearCodigo: function(c, s){ canjearCodigo(c, s); },
   urlRegreso: function(){ return googleRedirectUri(); },
 };
+}
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
 function payCheck(email){
@@ -1187,12 +1191,13 @@ function baseUrl(){
 function shareSheet(){
   var g=S.groups[curGid];
   var mems=membersOf(curGid);
-  var pays=S.payments[curGid]||{};
+  var allPays=S.payments[curGid]||{};
+  var snapPays={}; snapPays[curMonth]=allPays[curMonth]||{};
   var snap=L.encodeSnapshot({
     g:{id:g.id, name:g.name, amount:g.amount, currency:g.currency,
        freq:g.freq, cutDay:g.cutDay, cutWeekday:g.cutWeekday},
     members:mems.map(function(m){ return {id:m.id, name:m.name}; }),
-    payments:pays, month:curMonth
+    payments:snapPays, month:curMonth
   });
   var roLink=baseUrl()+'#/ver/'+snap;
   var edLink=baseUrl()+'#/g/'+g.id;
@@ -1249,7 +1254,7 @@ function downloadPDF(){
   var sum=sumFor(curGid, curMonth);
   var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
   var M=14;
-  var COLS=[{t:'Miembro',w:58},{t:'Teléfono',w:34},{t:'Estado',w:24},{t:'Monto',w:30},{t:'Fecha de pago',w:36}];
+  var COLS=[{t:'Miembro',w:80},{t:'Estado',w:28},{t:'Monto',w:32},{t:'Fecha de pago',w:42}];
   var y=0;
   function header(){
     y=18;
@@ -1276,7 +1281,7 @@ function downloadPDF(){
   mems.forEach(function(m){
     if(y>272){ doc.addPage(); header(); doc.setFontSize(10); }
     var ts=pm[m.id];
-    var cells=[m.name, m.phone||'—', ts?'Pagó':'Debe',
+    var cells=[m.name, ts?'Pagó':'Debe',
       ts?L.fmtMoney(g.amount,g.currency):'—',
       ts?new Date(ts).toLocaleDateString('es-DO'):'—'];
     var x=M;

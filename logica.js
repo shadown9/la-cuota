@@ -211,7 +211,13 @@
      leer ni escribir el grupo. */
   L.gidNuevo = function () {
     var c = '0123456789abcdef', s = '';
-    for (var i = 0; i < 32; i++) s += c[(Math.random() * 16) | 0];
+    try {
+      var buf = new Uint8Array(16);
+      (typeof crypto !== 'undefined' ? crypto : self.crypto).getRandomValues(buf);
+      for (var i = 0; i < 16; i++) s += c[buf[i] >> 4] + c[buf[i] & 0xf];
+    } catch (e) {
+      for (var i = 0; i < 32; i++) s += c[(Math.random() * 16) | 0];
+    }
     return 'id_' + Date.now().toString(36) +
       Math.floor(Math.random() * 1e6).toString(36) + '_' + s;
   };
@@ -228,15 +234,28 @@
   };
 
   function b64urlEncode(str) {
-    var b64 = typeof btoa !== 'undefined'
-      ? btoa(unescape(encodeURIComponent(str)))
-      : Buffer.from(str, 'utf8').toString('base64');
+    var b64;
+    if (typeof TextEncoder !== 'undefined') {
+      var bytes = new TextEncoder().encode(str);
+      var s = '';
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      b64 = typeof btoa !== 'undefined' ? btoa(s) : Buffer.from(str, 'utf8').toString('base64');
+    } else {
+      b64 = typeof btoa !== 'undefined'
+        ? btoa(unescape(encodeURIComponent(str)))
+        : Buffer.from(str, 'utf8').toString('base64');
+    }
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
   function b64urlDecode(s) {
     s = String(s).replace(/-/g, '+').replace(/_/g, '/');
     while (s.length % 4) s += '=';
     var bin = typeof atob !== 'undefined' ? atob(s) : Buffer.from(s, 'base64').toString('binary');
+    if (typeof TextDecoder !== 'undefined') {
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
     return decodeURIComponent(escape(bin));
   }
 
