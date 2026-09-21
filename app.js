@@ -1654,7 +1654,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 72;
+var APP_V = 73;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1722,6 +1722,15 @@ function actualizarAntesDeEntrar(codigo){
   var done = false;
   function seguir(){ if(done) return; done = true; seguirArranque(codigo); }
   if(!('serviceWorker' in navigator)){ seguir(); return; }
+  /* Si ya forzamos un reload y el SW aún no tomó el control, dejamos pasar al usuario
+     para no quedar en bucle infinito de "Actualizando…". */
+  try{
+    if(sessionStorage.getItem('lacuota_reload_tried')){
+      sessionStorage.removeItem('lacuota_reload_tried');
+      seguir();
+      return;
+    }
+  }catch(e){}
   var to = setTimeout(seguir, 4000);
   try{
     fetch('version.json?ts='+Date.now(), {cache:'no-store'})
@@ -1747,7 +1756,12 @@ function actualizarAntesDeEntrar(codigo){
               try{
                 navigator.serviceWorker.addEventListener('controllerchange', recargar);
               }catch(e2){}
-              setTimeout(recargar, 12000);
+              /* Si el controllerchange no llega en 12 s, forzamos reload pero marcamos
+                 que ya lo intentamos para no quedar en bucle. */
+              setTimeout(function(){
+                try{ sessionStorage.setItem('lacuota_reload_tried','1'); }catch(e){}
+                recargar();
+              }, 12000);
             }).catch(function(){ if(!done) seguir(); });
           }catch(e){ if(!done) seguir(); }
         }else{ clearTimeout(to); seguir(); }
