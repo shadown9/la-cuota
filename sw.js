@@ -1,5 +1,5 @@
 /* La Cuota — service worker: funciona sin conexión */
-var CACHE = 'lacuota-v70';
+var CACHE = 'lacuota-v71';
 
 /* Archivos de la app: se re-cachean en cada versión (release.sh actualiza CACHE). */
 var APP_FILES = [
