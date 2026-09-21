@@ -677,6 +677,29 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
+  /* 15l (v50): redirect vacío y sin sesión guardada: la puerta lo dice claro
+     con código de diagnóstico, en vez de quedarse muda. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      redirectResult: function(){ return Promise.resolve(null); },
+      user: function(){ return null; },
+      onUser: function(cb){ cb(null); return function(){}; },
+      signIn: function(){ return Promise.resolve(null); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.__lacuotaSub.redir();
+    setTimeout(function(){
+      var msgEl = sb.__els['verMsg'];
+      t('sin sesión tras Google: muestra mensaje claro',
+        msgEl.hidden===false && /no devolvió la sesión/.test(msgEl.textContent), msgEl.textContent);
+      t('sin sesión tras Google: trae código de diagnóstico',
+        /sin-sesion/.test(msgEl.textContent), msgEl.textContent);
+      resolve();
+    }, 60);
+  }));
   /* 15i: al verificar, la fecha local se alinea con la del servidor
      (autoridad), sin importar si había prueba local. */
   t('al verificar se adopta la fecha del servidor',

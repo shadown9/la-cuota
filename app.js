@@ -235,13 +235,28 @@ function showVerify(){
   if(b) b.disabled = false;
   show('v-verify');
 }
+/* Línea pequeña bajo el botón que narra en qué paso va el regreso de
+   Google. Solo se muestra mientras trabaja; si todo sale bien el usuario
+   entra y no la ve. */
+function verStep(t){
+  var s = document.getElementById('verStep');
+  if(!s) return;
+  s.hidden = !t; s.textContent = t || '';
+}
 /* Envía el token de Google al servidor, que verifica la firma y dice si
    esta cuenta ya usó su prueba (una cuenta = una prueba, para siempre). */
 function cuentaVerificar(userObj){
   var m = document.getElementById('verMsg');
   var b = document.getElementById('verGoogle');
-  function msg(t){ if(m){ m.hidden=false; m.textContent=t; } if(b) b.disabled=false; }
+  /* msg con código técnico pequeño: el usuario lee lo de arriba, y el
+     código nos dice a nosotros dónde se perdió el intento. */
+  function msg(t, code){
+    if(m){ m.hidden=false; m.textContent = t + (code ? ' (código: '+code+')' : ''); }
+    verStep(null);
+    if(b) b.disabled=false;
+  }
   if(b) b.disabled = true;
+  verStep('Verificando tu cuenta…');
   /* Sin la clave web de Firebase (la pone el dueño al activar Google),
      no se puede verificar: decirlo claro en vez de fallar raro. */
   if(!FB_CONFIG.apiKey || FB_CONFIG.apiKey.indexOf('CLAVE_')===0){
@@ -287,6 +302,7 @@ function cuentaVerificar(userObj){
       S.trialStart = S.googleTrialStart;
       save();
       var next = verNext; verNext = null;
+      verStep(null);
       if(pruebaActiva){
         toast(res.trialUsed ? 'Sesión verificada. Tu prueba sigue activa.'
                             : 'Prueba activada: 30 días gratis.');
@@ -305,15 +321,27 @@ function cuentaVerificar(userObj){
     if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
       msg('Se canceló el inicio de sesión. Tócalo de nuevo cuando quieras.');
     }else if(/rechazado/.test(emsg)){
-      msg('Google no autorizó esta cuenta para la prueba. Prueba con otra cuenta de Google.');
+      msg('Google no autorizó esta cuenta para la prueba. Prueba con otra cuenta de Google.', 'rechazado');
+    }else if(/^http/.test(emsg)){
+      msg('El servidor no respondió bien. Inténtalo de nuevo.', emsg);
+    }else if(/token/i.test(emsg)){
+      msg('No se pudo leer tu sesión de Google. Toca el botón de nuevo.', 'token');
     }else{
-      msg('No se pudo verificar. Revisa tu internet e inténtalo de nuevo.');
+      msg('No se pudo verificar. Revisa tu internet e inténtalo de nuevo.', code || 'red');
     }
   });
 }
 /* Al volver del redirect de Google, completa la verificación. */
 function cuentaVerificarRedirect(){
-  if(!FB_AUTH.ready()) return;
+  /* Si el SDK de Google no cargó (sin internet al arrancar), decirlo en
+     vez de quedarse en silencio: antes este caso no mostraba nada. */
+  if(!FB_AUTH.ready()){
+    if(L.needsVerify(S)){
+      var m0=document.getElementById('verMsg');
+      if(m0){ m0.hidden=false; m0.textContent='No se pudo cargar el inicio de sesión de Google. Revisa tu internet y recarga la página.'; }
+    }
+    return;
+  }
   /* Lleva al usuario a donde iba antes del redirect: se recupera de
      sessionStorage porque la recarga lo pudo haber perdido. */
   function retomarDestino(){
@@ -336,6 +364,12 @@ function cuentaVerificarRedirect(){
     retomarDestino();
     cuentaVerificar(u);
   }
+  function sinSesion(){
+    verStep(null);
+    var m=document.getElementById('verMsg');
+    if(m){ m.hidden=false; m.textContent='Google no devolvió la sesión. Toca «Continuar con Google» de nuevo. (código: sin-sesion)'; }
+    var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
+  }
   FB_AUTH.redirectResult().then(function(result){
     if(result && result.user){ conUsuario(result.user); return; }
     /* El resultado del redirect se entrega UNA sola vez: si la página se
@@ -345,22 +379,35 @@ function cuentaVerificarRedirect(){
        varado en la puerta después de haber entrado con Google; ahora se
        completa con la sesión guardada. */
     if(S.googleOk || !L.needsVerify(S)) return;
+    verStep('Volviendo de Google…');
     var u0 = null;
     try{ u0 = FB_AUTH.user(); }catch(e){}
     if(u0){ conUsuario(u0); return; }
-    if(!FB_AUTH.onUser) return;
+    if(!FB_AUTH.onUser){ sinSesion(); return; }
     /* La sesión puede tardar un momento en restaurarse: esperarla hasta
        4 segundos antes de rendirse. */
     var done=false, unsub=null;
-    function fin(){ if(done) return; done=true; try{ if(unsub) unsub(); }catch(e){} }
+    function fin(){
+      if(done) return; done=true;
+      try{ if(unsub) unsub(); }catch(e){}
+      sinSesion();
+    }
     var to=setTimeout(function(){ fin(); }, 4000);
     try{
       unsub = FB_AUTH.onUser(function(u){
-        if(done) return; fin(); clearTimeout(to);
-        if(u) conUsuario(u);
+        if(done) return; done=true; clearTimeout(to);
+        try{ if(unsub) unsub(); }catch(e){}
+        if(u){ conUsuario(u); }
+        else { sinSesion(); }
       });
-    }catch(e){ fin(); clearTimeout(to); }
-  }).catch(function(){});
+    }catch(e){ clearTimeout(to); sinSesion(); }
+  }).catch(function(e){
+    verStep(null);
+    var code=(e && e.code) || 'redirect';
+    var m=document.getElementById('verMsg');
+    if(m){ m.hidden=false; m.textContent='No se pudo volver de Google. Toca el botón de nuevo. (código: '+code+')'; }
+    var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
+  });
 }
 
 /* ---------- navegación ---------- */
@@ -1428,7 +1475,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 49;
+var APP_V = 50;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
