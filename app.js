@@ -596,6 +596,9 @@ var curGid=null, curMonth=null;
 
 function openGroup(gid){
   var g=S.groups[gid]; if(!g){ renderHome(); return; }
+  /* Registra la navegación al grupo en el historial del navegador para que
+     el botón de retroceso del teléfono vuelva al inicio en vez de salir de la app. */
+  if((location.hash||'') !== '#/g/'+gid) setHash('#/g/'+gid);
   curGid=gid;
   curMonth=S.ui['m_'+gid] || L.periodKey(new Date(), g);
   renderGroup();
@@ -1527,6 +1530,16 @@ window.addEventListener('hashchange', function(){
   if(ignoreHash){ ignoreHash = false; return; }
   route();
 });
+/* Si Android restaura la página desde su caché (bfcache) y la pantalla de
+   login quedó visible pero el usuario ya está autenticado, re-enrutar. */
+window.addEventListener('pageshow', function(e){
+  if(!e.persisted) return;
+  try{
+    if(!L.needsVerify(S) && !S.expectNoSession){
+      var ver=$('v-verify'); if(ver && !ver.hidden){ verStep(null); route(); }
+    }
+  }catch(ex){}
+});
 function route(){
   var h=location.hash||'';
   if(h.indexOf('#/pago-ok')===0){ pagoOk(); return; }
@@ -1659,7 +1672,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 76;
+var APP_V = 77;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
