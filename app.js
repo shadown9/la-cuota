@@ -124,6 +124,39 @@ function avisarConLogo(titulo, cuerpo){
 }
 window.__lacuotaNotif = { pedir: pedirPermisoNotif, avisar: avisarConLogo };
 
+/* ---------- DEUDA ACUMULADA ---------- */
+function periodKeyToDate(key){
+  var k=String(key||'');
+  try{
+    if(k.charAt(0)==='d'||k.charAt(0)==='s'){
+      var p=k.slice(1).split('-');
+      return new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+    }
+    var q=k.split('-');
+    return new Date(parseInt(q[0]),parseInt(q[1])-1,1);
+  }catch(e){ return null; }
+}
+function pastUnpaidCount(gid, memberId, curPeriodKey){
+  var pays=S.payments[gid]||{};
+  var mem=S.members[memberId];
+  var joinedAt=mem?(mem.createdAt||0):0;
+  var count=0;
+  Object.keys(pays).forEach(function(key){
+    if(key>=curPeriodKey) return;
+    var pm=pays[key]||{};
+    if(pm[memberId]) return;
+    var anyPaid=false;
+    Object.keys(pm).forEach(function(id){ if(pm[id]) anyPaid=true; });
+    if(!anyPaid) return;
+    if(joinedAt){
+      var pd=periodKeyToDate(key);
+      if(pd&&joinedAt>pd.getTime()) return;
+    }
+    count++;
+  });
+  return count;
+}
+
 /* Comparte con el menú del teléfono (WhatsApp, Telegram, etc.); si no se puede, copia. */
 function shareText(txt, title, copyMsg){
   if (navigator.share){
@@ -591,11 +624,25 @@ function renderMonth(){
     row.className='mrow'+(isPaid?' paid':'');
     var wa = (!isPaid && m.phone) ?
       '<button class="wabtn" data-wa="'+m.id+'" aria-label="Recordar por WhatsApp">💬</button>' : '';
+    var statTxt;
+    if(isPaid){
+      statTxt='Pagó ✓';
+    }else{
+      var past=pastUnpaidCount(curGid, m.id, curMonth);
+      if(past>0){
+        var n=past+1;
+        var freq=L.freqOf(g);
+        var freqLabel=freq==='semana'?(n+' semanas'):freq==='dia'?(n+' días'):(n+' meses');
+        statTxt='Debe '+L.fmtMoney(g.amount*n,g.currency)+' · '+freqLabel;
+      }else{
+        statTxt='Debe '+L.fmtMoney(g.amount,g.currency);
+      }
+    }
     row.innerHTML=
       '<button class="mmain" data-tg="'+m.id+'">'+
         '<span class="avatar">'+esc(initials(m.name))+'</span>'+
         '<span class="minfo"><span class="mname">'+esc(m.name)+'</span>'+
-        '<span class="mstat'+(isPaid?' paid':'')+'">'+(isPaid?'Pagó ✓':'Debe '+L.fmtMoney(g.amount,g.currency))+'</span></span>'+
+        '<span class="mstat'+(isPaid?' paid':'')+'">'+statTxt+'</span></span>'+
         '<span class="toggle">'+(isPaid?'✓':'')+'</span>'+
       '</button>'+wa;
     return row;
@@ -1336,7 +1383,8 @@ function moreSheet(){
     '<button class="sopt" id="moPdf">📄&nbsp; Reporte en PDF</button>'+
     '<button class="sopt" id="moCsv">⬇&nbsp; Descargar historial (CSV)</button>'+
     '<button class="sopt" id="moSet">⚙️&nbsp; Ajustes del grupo</button>'+
-    '<button class="sopt" id="moSub">💳&nbsp; Administrar suscripción</button>');
+    '<button class="sopt" id="moSub">💳&nbsp; Administrar suscripción</button>'+
+    '<button class="sopt" id="moNotif">'+(S.notifyPay?'🔕&nbsp; Desactivar recordatorios':'🔔&nbsp; Recordatorios automáticos')+'</button>');
   on('moMem', 'click', function(){ closeSheet(); openMembers(); });
   on('moShare', 'click', function(){ closeSheet(); shareSheet(); });
   on('moHist', 'click', function(){ closeSheet(); openHistory(); });
@@ -1344,6 +1392,21 @@ function moreSheet(){
   on('moCsv', 'click', function(){ closeSheet(); exportCSV(); });
   on('moSet', 'click', function(){ closeSheet(); openSettings(); });
   on('moSub', 'click', function(){ closeSheet(); manageSub(); });
+  on('moNotif', 'click', function(){
+    if(S.notifyPay){
+      S.notifyPay=false; save(); closeSheet();
+      toast('Recordatorios desactivados.');
+    }else if(!notifLista()){
+      closeSheet();
+      toast('Tu dispositivo no soporta notificaciones.');
+    }else{
+      pedirPermisoNotif(function(ok){
+        closeSheet();
+        if(ok){ S.notifyPay=true; save(); toast('Recordatorios activados.'); }
+        else{ toast('Activa las notificaciones en los ajustes del teléfono.'); }
+      });
+    }
+  });
 }
 
 /* ---------- eventos ---------- */
@@ -1544,12 +1607,54 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).catch(function(){});
   });
 }
+/* ---------- RECORDATORIOS AUTOMÁTICOS ---------- */
+function daysUntilPeriodClose(key, g){
+  try{
+    var today=new Date(); today=new Date(today.getFullYear(),today.getMonth(),today.getDate());
+    var k=String(key);
+    var closeDate;
+    if(k.charAt(0)==='s'||k.charAt(0)==='d'){
+      var ds=k.slice(1).split('-');
+      closeDate=new Date(parseInt(ds[0]),parseInt(ds[1])-1,parseInt(ds[2]));
+    }else{
+      var p=k.split('-');
+      var y=parseInt(p[0]),mo=parseInt(p[1])-1;
+      var cut=Math.min(Math.max(parseInt(g.cutDay,10)||1,1),28);
+      mo+=1; if(mo>11){mo=0;y+=1;}
+      closeDate=new Date(y,mo,cut);
+    }
+    return Math.round((closeDate.getTime()-today.getTime())/86400000);
+  }catch(e){ return 99; }
+}
+function checkReminders(){
+  if(!S.notifyPay) return;
+  if(!notifLista()||Notification.permission!=='granted') return;
+  Object.keys(S.groups).forEach(function(gid){
+    var g=S.groups[gid]; if(!g) return;
+    if(L.freqOf(g)==='dia') return;
+    var key=L.periodKey(new Date(),g);
+    var days=daysUntilPeriodClose(key,g);
+    if(days<0||days>3) return;
+    var storageKey='lacuota_r_'+gid+'_'+key;
+    try{ if(localStorage.getItem(storageKey)) return; }catch(e){}
+    var mems=membersOf(gid);
+    var pm=paidMap(gid,key);
+    var sum=L.monthSummary(g,mems,pm);
+    if(!sum.owed.length) return;
+    try{ localStorage.setItem(storageKey,'1'); }catch(e){}
+    var daysTxt=days===0?'hoy':(days===1?'1 día':days+' días');
+    avisarConLogo(g.name,
+      sum.owed.length+(sum.owed.length===1?' miembro debe':' miembros deben')+
+      ' la cuota. Cierra en '+daysTxt+'.');
+  });
+}
+
 /* ---------- ACTUALIZACIONES AUTOMÁTICAS ----------
    La app se actualiza sola, el usuario no tiene que hacer nada: al arrancar
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 69;
+var APP_V = 70;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1571,7 +1676,7 @@ if('serviceWorker' in navigator){
   });
 }
 document.addEventListener('visibilitychange', function(){
-  if(!document.hidden){ checkAppUpdate(); reanudarSiVerificado(); }
+  if(!document.hidden){ checkAppUpdate(); reanudarSiVerificado(); checkReminders(); }
 });
 /* Si la verificación se completó en otra ventana (misma instalación, mismo
    perfil), al volver al frente la puerta ya no tiene nada que pedir:
@@ -1675,6 +1780,7 @@ function seguirArranque(codigo){
   }
   paintVer();
   checkAppUpdate();
+  checkReminders();
   window.__lacuotaBooted = true;
 }
 try{
