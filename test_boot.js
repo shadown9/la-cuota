@@ -679,11 +679,12 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* 15l (v61): volviendo de Google sin sesión en esta ventana: NO se
+  /* 15l (v62): volviendo de Google sin sesión en esta ventana: NO se
      muestra ningún error (en la app instalada el redirect se completa en
-     el navegador del sistema y esa pestaña reabre la app sola con un
-     boleto). La puerta dice "Volviendo de Google…" y, si la sesión ya está
-     en este teléfono, se entra directo con ella. */
+     el navegador del sistema y esa pestaña deja el boleto en el
+     almacenamiento compartido). La puerta dice "Entrando…" mientras
+     espera el boleto o la sesión; si la sesión ya está en este teléfono,
+     se entra directo con ella. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
     sb.fetch = function(){
@@ -706,7 +707,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
         msgEl.hidden===true,
         'verMsg.hidden='+msgEl.hidden+' texto='+msgEl.textContent);
       t('volviendo de Google: indica el paso sin quedarse clavado en "verificando"',
-        sb.__els['verStep'].hidden===false && /Volviendo de Google/.test(sb.__els['verStep'].textContent),
+        sb.__els['verStep'].hidden===false && /Entrando/.test(sb.__els['verStep'].textContent),
         sb.__els['verStep'].textContent);
       t('volviendo de Google: el botón queda deshabilitado mientras se espera',
         sb.__els['verGoogle'].disabled===true, String(sb.__els['verGoogle'].disabled));
@@ -855,9 +856,12 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
   t('v61: el redirect de la instalada marca redirectFromApp (no en pestaña)',
     /viaRedirect\(true\)/.test(appJs) && /viaRedirect\(false\)/.test(appJs) &&
     /S\.redirectFromApp = !!desdeInstalada;/.test(appJs));
-  t('v61: sin vigilancia del almacenamiento compartido (diseño viejo fuera)',
+  t('v62: sin vigilancia vieja de sesión, pero el boleto sí viaja por almacenamiento compartido',
     !/vigilarVueltaDeGoogle/.test(appJs) && !/sondeoVuelta/.test(appJs) &&
-    !/mostrarGateVolverApp/.test(appJs) && !/leerCompartido/.test(appJs));
+    !/mostrarGateVolverApp/.test(appJs) && !/function leerCompartido\(\)/.test(appJs) &&
+    /function leerTicketCompartido\(\)/.test(appJs) &&
+    /addEventListener\('storage'/.test(appJs) &&
+    /lacuota_ticket/.test(appJs));
   t('v61: la pestaña del sistema pide el boleto y reabre la app con intent://',
     /function devolverALaApp\(idToken\)/.test(appJs) &&
     /fetch\(TICKET_URL/.test(appJs) && /intent:\/\//.test(appJs) &&
@@ -873,6 +877,24 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /if\(!esInstalada\(\)\) gateVolverApp = false;/.test(appJs));
   t('v61: al arrancar verificado con grupo pendiente se abre el grupo',
     /getItem\('lacuota_verGid'\)[\s\S]{0,1200}openGroup\(_rg\)/.test(appJs));
+  /* v62: el flujo jamás opera con código viejo ni muestra textos del
+     diseño anterior. */
+  t('v62: "Volviendo de Google" no existe en ningún texto visible',
+    !/Volviendo de Google/.test(appJs) && !/Volviendo de Google/.test(indexHtml));
+  t('v62: el arranque verifica la versión antes de dejar operar',
+    /function actualizarAntesDeEntrar\(boleto\)/.test(appJs) &&
+    /actualizarAntesDeEntrar\(_boleto0\)/.test(appJs) &&
+    /verStep\('Actualizando…'\);/.test(appJs));
+  t('v62: con boleto en mano no corre el rescate del redirect',
+    /if\(!boleto\) cuentaVerificarRedirect\(\);/.test(appJs));
+  t('v62: la pestaña reintenta el boleto antes de rendirse',
+    /if\(intentos < 3\)/.test(appJs) && /setTimeout\(pedirBoleto, 1500\)/.test(appJs));
+  t('v62: el boleto viaja por almacenamiento compartido antes del intent',
+    /setItem\('lacuota_ticket'/.test(appJs) &&
+    /function leerTicketCompartido\(\)/.test(appJs));
+  t('v62: el rescate espera el boleto compartido además de la sesión',
+    /pollBoleto/.test(appJs) && /leerTicketCompartido\(\);/.test(appJs) &&
+    /verStep\('Entrando…'\)/.test(appJs));
     /* 15o (v58): en la app instalada, tocar "Continuar con Google" navega a
      Google con redirect (el popup abriría una pestaña del sistema que nunca
      devuelve la sesión) y deja la marca para rescatar al volver. */
@@ -1255,6 +1277,144 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       t('arranque verificado con grupo pendiente: la marca se consume',
         sb.sessionStorage.getItem('lacuota_verGid')===null,
         String(sb.sessionStorage.getItem('lacuota_verGid')));
+      resolve();
+    }, 60);
+  }));
+  /* v62: la pestaña del sistema deja el boleto en el almacenamiento
+     compartido ANTES del intent:// (la ventana de la app abierta espera
+     y lo canjea sola, sin depender del salto automático). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true, redirectFromApp:true})});
+    sb.fetch = function(url){
+      var u = String(url);
+      var resp = {ok:true, trialStart:4242, trialUsed:false, trialActive:true, trialExpired:false};
+      if(u.indexOf('/ticket')>=0) resp = {ok:true, ticket:'bb11bb22cc33dd44ee55ff66001122334455667788990022'};
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(resp); } });
+    };
+    sb.location.origin = 'https://lacuota.org';
+    sb.location.pathname = '/';
+    loadApp(sb);
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_X'); }}}); },
+      user: function(){ return null; },
+      onUser: function(cb){ return function(){}; },
+      signIn: function(){ return Promise.resolve(null); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.__lacuotaSub.redir();
+    setTimeout(function(){
+      var guardado = null;
+      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_ticket') || 'null'); }catch(e){}
+      t('pestaña v62: deja el boleto en el almacenamiento compartido',
+        !!guardado && guardado.t === 'bb11bb22cc33dd44ee55ff66001122334455667788990022',
+        String(sb.localStorage.getItem('lacuota_ticket')).slice(0,70));
+      resolve();
+    }, 80);
+  }));
+  /* v62: si /ticket falla, la pestaña reintenta sola (el servidor puede
+     estar propagando) antes de rendirse. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
+    var timers = [];
+    sb.setTimeout = function(fn){ timers.push(fn); return timers.length; };
+    var intentos = 0;
+    sb.fetch = function(url){
+      if(String(url).indexOf('/ticket')>=0){
+        intentos++;
+        if(intentos < 3) return Promise.reject(new Error('red'));
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve(
+          {ok:true, ticket:'cc11bb22cc33dd44ee55ff66001122334455667788990033'}); }});
+      }
+      return Promise.reject(new Error('offline'));
+    };
+    sb.location.origin = 'https://lacuota.org';
+    sb.location.pathname = '/';
+    loadApp(sb);
+    sb.__lacuotaSub.devolver('TOK_REINTENTO');
+    setTimeout(function(){
+      t('boleto v62: el primer fallo programa un reintento', timers.length>=1 && intentos===1,
+        'intentos='+intentos+' timers='+timers.length);
+      timers.shift()();
+      setTimeout(function(){
+        t('boleto v62: el segundo fallo programa otro reintento', timers.length>=1 && intentos===2,
+          'intentos='+intentos+' timers='+timers.length);
+        timers.shift()();
+        setTimeout(function(){
+          t('boleto v62: al tercer intento pide el boleto y reabre la app',
+            intentos===3 && sb.location.href.indexOf('intent://lacuota.org/?t=cc11bb22')===0,
+            'intentos='+intentos+' href='+String(sb.location.href).slice(0,60));
+          resolve();
+        }, 30);
+      }, 30);
+    }, 40);
+  }));
+  /* v62: la app abierta canjea el boleto que la pestaña dejó en el
+     almacenamiento compartido (el puente que rescata la ventana que
+     esperaba el regreso de Google). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    sb.fetch = function(){
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
+        {ok:true, sub:'sub-c', trialStart:6161, trialUsed:false, trialActive:true, trialExpired:false}); } });
+    };
+    loadApp(sb);
+    sb.localStorage.setItem('lacuota_ticket',
+      JSON.stringify({t:'dd11bb22cc33dd44ee55ff66001122334455667788990044', ts:Date.now()}));
+    var t2 = sb.__lacuotaSub.canjearCompartido();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('boleto compartido: se detecta en el almacenamiento',
+        t2==='dd11bb22cc33dd44ee55ff66001122334455667788990044', String(t2));
+      t('boleto compartido: se canjea y cae directo en los grupos',
+        st.googleOk===true && sb.__els['v-home'].hidden===false && sb.__els['v-verify'].hidden===true,
+        'googleOk='+st.googleOk+' v-home.hidden='+sb.__els['v-home'].hidden);
+      resolve();
+    }, 80);
+  }));
+  /* v62: boleto ya canjeado (410) pero con la sesión verificada en el
+     disco (otra ventana lo canjeó): se entra a los grupos, jamás a la
+     puerta varada. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, googleOk:true})});
+    sb.fetch = function(){
+      return Promise.resolve({ ok:false, status:410,
+        json:function(){ return Promise.resolve({ok:false, error:'usado'}); } });
+    };
+    loadApp(sb);
+    sb.__lacuotaSub.canjear('ee11bb22cc33dd44ee55ff66001122334455667788990055');
+    setTimeout(function(){
+      t('boleto 410 con sesión en disco: entra a los grupos',
+        sb.__els['v-home'].hidden===false && sb.__els['v-verify'].hidden===true,
+        'v-home.hidden='+sb.__els['v-home'].hidden+' v-verify.hidden='+sb.__els['v-verify'].hidden);
+      resolve();
+    }, 80);
+  }));
+  /* v62: con versión nueva disponible, el arranque se bloquea en
+     "Actualizando…" y jamás deja operar con el código viejo. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
+    var m = /var APP_V\s*=\s*(\d+)/.exec(appJs);
+    var appV = m ? parseInt(m[1], 10) : 0;
+    var updateCalls = 0;
+    sb.navigator.serviceWorker = {
+      getRegistration: function(){ return Promise.resolve({update:function(){ updateCalls++; return Promise.resolve(true); }}); },
+      addEventListener: function(){}
+    };
+    sb.fetch = function(url){
+      if(String(url).indexOf('version.json')>=0)
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v: appV+1}); }});
+      return Promise.reject(new Error('offline'));
+    };
+    loadApp(sb);
+    setTimeout(function(){
+      t('versión nueva: bloquea con "Actualizando…" y pide la actualización',
+        updateCalls===1 && sb.__els['verStep'].textContent==='Actualizando…',
+        'updateCalls='+updateCalls+' paso='+sb.__els['verStep'].textContent);
+      t('versión nueva: no arranca la puerta con el código viejo',
+        sb.__lacuotaBooted!==true, String(sb.__lacuotaBooted));
       resolve();
     }, 60);
   }));

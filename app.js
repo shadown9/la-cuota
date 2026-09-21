@@ -492,13 +492,28 @@ function devolverALaApp(idToken){
     }, 2500);
   }
   function noSePudo(){
+    /* No se pudo pedir el boleto (o el salto no salió): reintentar aquí
+       mismo. Tocar "Continuar con Google" de nuevo sería empezar otro
+       redirect completo; el boleto se puede pedir otra vez con la sesión
+       que ya quedó verificada en esta pestaña. */
     verStep(null);
     var t = document.getElementById('verHechoT');
     if(t) t.textContent = 'No se pudo abrir la app.';
     var s = document.getElementById('verHechoS');
-    if(s) s.textContent = 'Revisa tu internet y toca "Continuar con Google" de nuevo.';
+    if(s) s.textContent = 'Toca para intentarlo de nuevo.';
     var g = document.getElementById('verHecho'); if(g) g.hidden = false;
-    var b1 = document.getElementById('verGoogle'); if(b1) b1.hidden = false;
+    var bv = document.getElementById('verVolver');
+    if(bv){
+      bv.hidden = false;
+      try{ bv.textContent = 'Reintentar'; }catch(e){}
+      bv.onclick = function(){
+        var gg = document.getElementById('verHecho'); if(gg) gg.hidden = true;
+        bv.hidden = true;
+        verStep('Abriendo la app…');
+        intentos = 0;
+        pedirBoleto();
+      };
+    }
   }
   if(esIOS()){
     /* iOS no entiende intent://: se avisa y el regreso es a mano. */
@@ -510,16 +525,31 @@ function devolverALaApp(idToken){
     var g2 = document.getElementById('verHecho'); if(g2) g2.hidden = false;
     return;
   }
-  fetch(TICKET_URL, {method:'POST', headers:{'content-type':'application/json'},
-      body: JSON.stringify({idToken: idToken})})
-    .then(function(r){ if(!r.ok) throw new Error('http'+r.status); return r.json(); })
-    .then(function(d){
-      if(!d || !d.ok || !d.ticket) throw new Error('boleto');
-      var iu = boletoIntentUrl(d.ticket);
-      if(!iu) throw new Error('intent');
-      listoParaVolver(iu);
-    })
-    .catch(function(){ noSePudo(); });
+  var intentos = 0;
+  function pedirBoleto(){
+    intentos++;
+    fetch(TICKET_URL, {method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({idToken: idToken})})
+      .then(function(r){ if(!r.ok) throw new Error('http'+r.status); return r.json(); })
+      .then(function(d){
+        if(!d || !d.ok || !d.ticket) throw new Error('boleto');
+        /* v62: dejar el boleto en el almacenamiento compartido ANTES del
+           intent://. La ventana de la app instalada puede seguir abierta
+           esperando: al ver el boleto lo canjea sola y entra a los grupos,
+           sin depender de que el salto automático abra una ventana nueva. */
+        try{ localStorage.setItem('lacuota_ticket', JSON.stringify({t: d.ticket, ts: Date.now()})); }catch(e){}
+        var iu = boletoIntentUrl(d.ticket);
+        if(!iu) throw new Error('intent');
+        listoParaVolver(iu);
+      })
+      .catch(function(){
+        /* El servidor puede tardar en propagar un despliegue o la red
+           fallar un momento: reintentar solo antes de rendirse. */
+        if(intentos < 3){ setTimeout(pedirBoleto, 1500); return; }
+        noSePudo();
+      });
+  }
+  pedirBoleto();
 }
 /* ---------- v61: canje del boleto en la app ----------
    Si se llegó con ?t=... (la pestaña del sistema reabrió la app tras
@@ -532,6 +562,43 @@ function leerBoletoUrl(){
     if(m) t = m[1];
   }catch(e){}
   return t;
+}
+/* ---------- v62: el boleto también viaja por el almacenamiento compartido ----------
+   La pestaña del sistema deja el boleto en localStorage (mismo origen,
+   mismo perfil) antes del intent://. Si la ventana de la app instalada
+   sigue abierta esperando, lo ve llegar y lo canjea sola: no depende de
+   que el salto automático abra una ventana nueva. */
+function ticketsConsumidos(){
+  try{
+    var l = JSON.parse(localStorage.getItem('lacuota_tickets_ok') || '[]');
+    return Array.isArray(l) ? l : [];
+  }catch(e){ return []; }
+}
+function marcarTicketUsado(ticket){
+  try{
+    var l = ticketsConsumidos();
+    if(l.indexOf(ticket) < 0){ l.push(ticket); if(l.length > 10) l = l.slice(-10); }
+    localStorage.setItem('lacuota_tickets_ok', JSON.stringify(l));
+  }catch(e){}
+}
+function leerTicketCompartido(){
+  try{
+    var raw = localStorage.getItem('lacuota_ticket');
+    if(!raw) return null;
+    var rec = JSON.parse(raw);
+    if(!rec || !rec.t || !/^[0-9a-f]{48}$/.test(rec.t)) return null;
+    /* Viejo: el servidor lo vence a los 5 minutos; no intentar canjes
+       condenados al 410. */
+    if(Date.now() - (rec.ts || 0) > 10*60*1000) return null;
+    if(ticketsConsumidos().indexOf(rec.t) >= 0) return null;
+    return rec.t;
+  }catch(e){ return null; }
+}
+function sesionVerificadaEnDisco(){
+  try{
+    var s = JSON.parse(localStorage.getItem('lacuota_v1') || '{}');
+    return !!(s && s.googleOk);
+  }catch(e){ return false; }
 }
 function mostrarEntrando(){
   var b = document.getElementById('verGoogle'); if(b) b.hidden = true;
@@ -566,17 +633,56 @@ function aplicarSesionBoleto(res){
     renderPay();
   }
 }
+/* El mismo boleto no se canjea dos veces en esta ventana (puede llegar
+   por la URL y por el almacenamiento compartido a la vez). */
+var _boletosEnCurso = {};
 function canjearBoleto(ticket){
+  if(!ticket || _boletosEnCurso[ticket]) return;
+  if(ticketsConsumidos().indexOf(ticket) >= 0){
+    /* Ya lo canjeamos antes: si la sesión quedó verificada, adentro. */
+    if(sesionVerificadaEnDisco()){ renderHome(); } else { showVerify(); }
+    return;
+  }
+  _boletosEnCurso[ticket] = true;
   mostrarEntrando();
   fetch(TICKET_REDEEM_URL, {method:'POST', headers:{'content-type':'application/json'},
       body: JSON.stringify({ticket: ticket})})
     .then(function(r){ if(!r.ok) throw new Error('http'+r.status); return r.json(); })
     .then(function(res){
+      delete _boletosEnCurso[ticket];
       if(!res || !res.ok) throw new Error('boleto');
+      marcarTicketUsado(ticket);
+      /* El boleto ES la prueba de que Google se completó: las marcas del
+         redirect viejo ya no tienen nada que rescatar. */
+      S.redirectPending = false; S.redirectFromApp = false; save();
+      try{ localStorage.removeItem('lacuota_ticket'); }catch(e){}
       aplicarSesionBoleto(res);
     })
-    .catch(function(){ showVerify(); });
+    .catch(function(err){
+      delete _boletosEnCurso[ticket];
+      var code = String((err && err.message) || '');
+      if(/http410|http404/.test(code)){
+        /* Vencido o ya canjeado: si otra ventana de este mismo teléfono lo
+           canjeó, la sesión ya quedó verificada en el disco. */
+        marcarTicketUsado(ticket);
+        try{ localStorage.removeItem('lacuota_ticket'); }catch(e2){}
+        if(sesionVerificadaEnDisco()){ renderHome(); return; }
+      }
+      showVerify();
+    });
 }
+/* Si el boleto llega al almacenamiento compartido mientras esta ventana
+   está abierta (la pestaña del sistema lo dejó ahí), canjearlo de una vez:
+   es el caso de la app instalada esperando el regreso de Google. */
+try{
+  window.addEventListener('storage', function(e){
+    if(!e || e.key !== 'lacuota_ticket' || !e.newValue) return;
+    if(window.__lacuotaBooted && !S.googleOk){
+      var t = leerTicketCompartido();
+      if(t) canjearBoleto(t);
+    }
+  });
+}catch(e){}
 /* Lleva al usuario a donde iba antes del redirect: se recupera de
    sessionStorage porque la recarga lo pudo haber perdido. (v60: al alcance
    del módulo para que la vigilancia del almacenamiento compartido también
@@ -648,40 +754,52 @@ function cuentaVerificarRedirect(){
     if(!veniaDeGoogle){ verStep(null); return; }
     /* Se volvió de Google pero el resultado no cayó en esta ventana: en la
        app instalada el redirect se completa en el navegador del sistema y
-       esa pestaña reabre la app SOLA con un boleto (?t=...). Mientras
-       tanto, si la sesión de Google ya está en este teléfono, se entra
-       directo con ella (misma instalación, mismo perfil). No hay error
-       que mostrar: es un simple tránsito. */
-    verStep('Volviendo de Google…');
+       esa pestaña deja el boleto en el almacenamiento compartido (y reabre
+       la app sola). Mientras tanto, si la sesión de Google ya está en este
+       teléfono, se entra directo con ella. Es un simple tránsito: ningún
+       texto de error. */
+    verStep('Entrando…');
     var b0=document.getElementById('verGoogle'); if(b0) b0.disabled=true;
     var finRescate = false;
     var unsubRescate = null;
+    var pollBoleto = null;
     function terminarRescate(){
       if(finRescate) return; finRescate = true;
       try{ if(unsubRescate) unsubRescate(); }catch(e){}
+      try{ if(pollBoleto) clearInterval(pollBoleto); }catch(e2){}
       verStep(null);
       var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
     }
-    /* Si la sesión ya está en este teléfono, entrar directo con ella de
+    /* 1) El boleto puede haber llegado ya al almacenamiento compartido. */
+    var t0 = null;
+    try{ t0 = leerTicketCompartido(); }catch(e){}
+    if(t0){ terminarRescate(); canjearBoleto(t0); return; }
+    /* 2) Si la sesión ya está en este teléfono, entrar directo con ella de
        una vez (sin esperar al observador). */
     var uYa = null;
     try{ uYa = FB_AUTH.user(); }catch(e){}
-    if(uYa){ terminarRescate(); conUsuario(uYa); }
-    else{
-      try{
-        unsubRescate = FB_AUTH.onUser(function(u){
-          if(u){ terminarRescate(); conUsuario(u); }
-        });
-      }catch(e){ terminarRescate(); }
-    }
+    if(uYa){ terminarRescate(); conUsuario(uYa); return; }
+    /* 3) Vigilar las dos vías mientras se espera: el boleto compartido y
+       la sesión de Firebase. Lo primero que llegue, gana. */
+    try{
+      pollBoleto = setInterval(function(){
+        if(finRescate) return;
+        var t = null;
+        try{ t = leerTicketCompartido(); }catch(e){}
+        if(t){ terminarRescate(); canjearBoleto(t); }
+      }, 1000);
+    }catch(e){}
+    try{
+      unsubRescate = FB_AUTH.onUser(function(u){
+        if(u){ terminarRescate(); conUsuario(u); }
+      });
+    }catch(e){ terminarRescate(); }
     setTimeout(function(){
-      /* La pestaña del sistema puede tardar en reabrir la app: no es un
-         error. El botón queda listo y, si el boleto llega, se entra solo. */
+      /* Sin boleto ni sesión después de un rato: no es un error para
+         mostrarle al usuario. La puerta queda lista y silenciosa. */
       if(finRescate) return;
       terminarRescate();
-      var m=document.getElementById('verMsg');
-      if(m){ m.hidden=false; m.textContent='Si ya elegiste tu cuenta en el navegador, la app se abre sola en unos segundos.'; }
-    }, 4000);
+    }, 15000);
   }).catch(function(e){
     verStep(null);
     var code=(e && e.code) || 'redirect';
@@ -1353,6 +1471,9 @@ window.__lacuotaSub = {
   intentBoleto: function(t){ return boletoIntentUrl(t); },
   canjear: function(t){ canjearBoleto(t); },
   devolver: function(idt){ devolverALaApp(idt); },
+  /* v62 (pruebas): boleto por almacenamiento compartido */
+  ticketCompartido: function(){ return leerTicketCompartido(); },
+  canjearCompartido: function(){ var t = leerTicketCompartido(); if(t) canjearBoleto(t); return t; },
 };
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
@@ -1819,7 +1940,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 61;
+var APP_V = 62;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1869,6 +1990,87 @@ function bootFail(){
     }
   }catch(e){}
 }
+/* v62: verifica la versión ANTES de dejar operar. Si hay una más nueva,
+   bloquea con "Actualizando…" y recarga con el código nuevo; si no,
+   sigue con seguirArranque. Sin internet o si tarda, sigue igual con lo
+   que hay (nunca pantalla clavada). */
+function actualizarAntesDeEntrar(boleto){
+  var done = false;
+  function seguir(){ if(done) return; done = true; seguirArranque(boleto); }
+  if(!('serviceWorker' in navigator)){ seguir(); return; }
+  var to = setTimeout(seguir, 4000);
+  try{
+    fetch('version.json?ts='+Date.now(), {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(done) return;
+        if(d && d.v && d.v > APP_V){
+          clearTimeout(to);
+          /* Solo bloquear si de verdad se puede actualizar: sin registro
+             del service worker no hay cómo traer el código nuevo. */
+          try{
+            navigator.serviceWorker.getRegistration().then(function(reg){
+              if(done) return;
+              if(!reg){ seguir(); return; }
+              done = true;
+              /* El boleto sobrevive a la recarga en la sesión de la pestaña. */
+              if(boleto){ try{ sessionStorage.setItem('lacuota_ticket_url', boleto); }catch(e){} }
+              mostrarEntrando();
+              verStep('Actualizando…');
+              var recargado = false;
+              function recargar(){ if(recargado) return; recargado = true; try{ location.reload(); }catch(e){} }
+              try{ reg.update().catch(function(){}); }catch(e){}
+              try{
+                navigator.serviceWorker.addEventListener('controllerchange', recargar);
+              }catch(e2){}
+              setTimeout(recargar, 12000);
+            }).catch(function(){ if(!done) seguir(); });
+          }catch(e){ if(!done) seguir(); }
+        }else{ clearTimeout(to); seguir(); }
+      })
+      .catch(function(){ clearTimeout(to); seguir(); });
+  }catch(e){ clearTimeout(to); seguir(); }
+}
+function seguirArranque(boleto){
+  bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
+  /* El boleto es la prueba completa de que Google se hizo: no hace falta
+     el rescate del redirect cuando se trae uno. */
+  if(!boleto) cuentaVerificarRedirect(); /* completa el login de Google al volver del redirect */
+  /* v61/v62: el boleto puede venir en la URL (?t=...), haber quedado en la
+     sesión tras una actualización, o estar en el almacenamiento compartido
+     (la pestaña del sistema lo dejó ahí). Se canjea y se cae directo en la
+     página de grupos, sin mostrar la puerta. */
+  var _boleto = boleto || leerTicketCompartido();
+  if(_boleto){
+    canjearBoleto(_boleto);
+    paintVer();
+    checkAppUpdate();
+    window.__lacuotaBooted = true;
+  }else{
+  /* La prueba exige cuenta de Google verificada en el servidor (una por
+     cuenta): quien tenga grupos sin verificar ve la pantalla de
+     verificación al arrancar, antes de entrar. El enlace con el que venía
+     (si traía uno) se guarda para retomarlo tras verificar. */
+  var _rg = null;
+  try{ _rg = sessionStorage.getItem('lacuota_verGid'); }catch(e){}
+  if(L.needsVerify(S)){
+    /* Solo se guarda, nunca se borra aquí: al volver del redirect de
+       Google el hash viene vacío y borrarlo perdería el enlace pendiente.
+       Lo consume cuentaVerificarRedirect() tras verificar. */
+    var _vh = location.hash || '';
+    try{ if(_vh && _vh !== '#') sessionStorage.setItem('lacuota_verHash', _vh); }catch(e){}
+    showVerify();
+  }else if(_rg && S.groups && S.groups[_rg]){
+    try{ sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
+    openGroup(_rg);
+  }else{
+    route();
+  }
+  paintVer();
+  checkAppUpdate();
+  window.__lacuotaBooted = true;
+  }
+}
 try{
   /* Si se llegó desde la app instalada ("abrir en el navegador"), se marca
      para avisar que ya puede volver a la app tras verificar, y se limpia
@@ -1902,45 +2104,24 @@ try{
       }
     }
   }
-  bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
-  cuentaVerificarRedirect(); /* completa el login de Google al volver del redirect */
-  /* v61: si se llegó con un boleto (?t=...), la pestaña del sistema reabrió
-     la app tras elegir la cuenta de Google. Se limpia de la URL y se
-     canjea: la app entra sola a la página de grupos, sin mostrar la
-     puerta. En iOS esto no aplica (el boleto llega en la misma pestaña). */
-  var _boleto = leerBoletoUrl();
-  if(_boleto){
+  /* v62: la puerta JAMÁS opera con código viejo. Antes la actualización
+     corría en segundo plano y se podía tocar "Continuar con Google" con la
+     versión anterior todavía activa. Si hay versión nueva: se guarda el
+     boleto (si se traía uno), se bloquea la pantalla con "Actualizando…" y
+     se recarga con el código nuevo antes de dejar tocar nada. */
+  var _boleto0 = leerBoletoUrl();
+  if(!_boleto0){
+    try{
+      _boleto0 = sessionStorage.getItem('lacuota_ticket_url') || null;
+      if(_boleto0) sessionStorage.removeItem('lacuota_ticket_url');
+    }catch(e){ _boleto0 = null; }
+  }
+  if(_boleto0){
     try{
       if(history && history.replaceState) history.replaceState(null, '', String(location).split('?')[0]);
     }catch(e){}
-    canjearBoleto(_boleto);
-    paintVer();
-    checkAppUpdate();
-    window.__lacuotaBooted = true;
-  }else{
-  /* La prueba exige cuenta de Google verificada en el servidor (una por
-     cuenta): quien tenga grupos sin verificar ve la pantalla de
-     verificación al arrancar, antes de entrar. El enlace con el que venía
-     (si traía uno) se guarda para retomarlo tras verificar. */
-  var _rg = null;
-  try{ _rg = sessionStorage.getItem('lacuota_verGid'); }catch(e){}
-  if(L.needsVerify(S)){
-    /* Solo se guarda, nunca se borra aquí: al volver del redirect de
-       Google el hash viene vacío y borrarlo perdería el enlace pendiente.
-       Lo consume cuentaVerificarRedirect() tras verificar. */
-    var _vh = location.hash || '';
-    try{ if(_vh && _vh !== '#') sessionStorage.setItem('lacuota_verHash', _vh); }catch(e){}
-    showVerify();
-  }else if(_rg && S.groups && S.groups[_rg]){
-    try{ sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
-    openGroup(_rg);
-  }else{
-    route();
   }
-  paintVer();
-  checkAppUpdate();
-  window.__lacuotaBooted = true;
-  }
+  actualizarAntesDeEntrar(_boleto0);
 }catch(err){ bootFail(); }
 /* Re-verificar la suscripción en silencio al arrancar: si Stripe dice que
    ya no está activa, se desactiva sola (nadie la mantiene a mano). */
