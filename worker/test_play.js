@@ -191,6 +191,15 @@ function b64urlJson(s) {
   const r7 = await post('/play-sub', { googleSub: 'sub-abc-123' });
   t('si Google dice vencida, se apaga', r7.json.active === false, JSON.stringify(r7.json));
 
+  /* normPem: la clave pegada desde el JSON con \n literales debe quedar usable */
+  const { normPem } = require('./worker.js');
+  const pemReal = '-----BEGIN PRIVATE KEY-----\nAAAABBBB\n-----END PRIVATE KEY-----\n';
+  t('normPem deja intacta la clave con saltos reales', normPem(pemReal) === pemReal.trim());
+  const pemEsc = '"-----BEGIN PRIVATE KEY-----\\nAAAABBBB\\n-----END PRIVATE KEY-----\\n"';
+  t('normPem convierte \\n literales y quita comillas', normPem(pemEsc) === pemReal.trim(),
+    JSON.stringify(normPem(pemEsc)));
+  t('normPem con valor vacío no revienta', normPem('') === '');
+
   globalThis.fetch = realFetch;
   console.log('\n' + count + ' pruebas, ' + failures + ' fallos');
   process.exit(failures ? 1 : 0);

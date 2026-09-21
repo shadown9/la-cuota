@@ -334,12 +334,17 @@ async function importRsaSignKey(pkcs8Buf) {
   }
   throw last;
 }
+/* Normaliza una clave PEM pegada desde un JSON: convierte \n literales en
+   saltos reales, quita comillas envolventes y espacios sobrantes. */
+function normPem(s) {
+  return String(s || '').replace(/\\n/g, '\n').replace(/^"|"$/g, '').trim();
+}
 /* Token de acceso OAuth2 con la cuenta de servicio (flujo JWT).
    Se cachea ~55 minutos. fetchFn es inyectable para pruebas. */
 let playTokCache = { at: 0, token: null };
 async function playAccessToken(env, fetchFn) {
   if (playTokCache.token && Date.now() - playTokCache.at < 3300e3) return playTokCache.token;
-  const email = env.PLAY_SA_EMAIL, keyPem = env.PLAY_SA_KEY;
+  const email = env.PLAY_SA_EMAIL, keyPem = normPem(env.PLAY_SA_KEY);
   if (!email || !keyPem) throw new Error('sin_cuenta_servicio');
   const now = Math.floor(Date.now() / 1000);
   const unsigned = b64urlEncodeStr(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' +
@@ -736,4 +741,4 @@ function json(obj, status = 200, origin = '') {
 }
 
 /* Exportadas para las pruebas (node). */
-export { verifyFirebaseIdToken, verifyGoogleIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey, playEvalSubscription, b64urlEncodeStr, pemToDerPrivate };
+export { verifyFirebaseIdToken, verifyGoogleIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey, playEvalSubscription, b64urlEncodeStr, pemToDerPrivate, normPem };
