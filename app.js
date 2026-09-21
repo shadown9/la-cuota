@@ -951,7 +951,7 @@ var FAQS=[
   ['¿Qué significan los dos enlaces para compartir?',
    'El enlace de miembros es para que vean quién va al día, sin poder cambiar nada. El de tesorero abre tu grupo en tu teléfono para seguir anotando.'],
   ['¿Qué pasa si cambio de teléfono?',
-   'Tus datos están en este teléfono. La sincronización automática entre teléfonos llega en la próxima versión.'],
+   'Usa el enlace de tesorero para abrir tu grupo en otro teléfono: los datos se sincronizan automáticamente a través de la nube.'],
   ['¿Se puede cobrar diario o semanal?',
    'Sí. Al crear el grupo eliges la frecuencia: diaria, semanal o mensual.'],
   ['¿Cuánto cuesta?',
@@ -1544,7 +1544,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 67;
+var APP_V = 68;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
