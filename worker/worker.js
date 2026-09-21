@@ -165,6 +165,32 @@ async function verifyFirebaseIdToken(idToken, projectId, fetchCerts) {
   }
 }
 
+/* Calcula el estado de la prueba gratis de una cuenta (una cuenta = una
+   prueba, para siempre). El reingreso es idempotente: devuelve la fecha
+   original sin extenderla. La usan /trial y /ticket. */
+async function trialState(env, sub) {
+  const key = 'trial:g:' + await sha256Hex(sub);
+  const rec = await env.SUBS.get(key, 'json');
+  const now = Date.now();
+  if (rec && rec.trialStart) {
+    const trialExpiresAt = rec.trialStart + TRIAL_MS;
+    const trialActive = now < trialExpiresAt;
+    return { trialUsed: true, trialStart: rec.trialStart,
+      trialExpiresAt: trialExpiresAt, trialActive: trialActive,
+      trialExpired: !trialActive };
+  }
+  const ts = now;
+  await env.SUBS.put(key, JSON.stringify({ trialStart: ts, createdAt: ts }));
+  return { trialUsed: false, trialStart: ts,
+    trialExpiresAt: ts + TRIAL_MS, trialActive: true, trialExpired: false };
+}
+
+function hexRandom(nBytes) {
+  const b = new Uint8Array(nBytes);
+  crypto.getRandomValues(b);
+  return [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
 async function checkRateLimit(env, ip) {
   if (!ip) return true;
   const k = 'rl:' + await sha256Hex('trial|' + ip);
@@ -237,20 +263,57 @@ export default {
       const v = await verifyFirebaseIdToken(
         body && body.idToken, env.FB_PROJECT || 'la-cuota');
       if (!v.ok) return json({ ok: false, reason: v.reason }, 401);
-      const key = 'trial:g:' + await sha256Hex(v.sub);
-      const rec = await env.SUBS.get(key, 'json');
-      const now = Date.now();
-      if (rec && rec.trialStart) {
-        const trialExpiresAt = rec.trialStart + TRIAL_MS;
-        const trialActive = now < trialExpiresAt;
-        return json({ ok: true, trialUsed: true, trialStart: rec.trialStart,
-          trialExpiresAt: trialExpiresAt, trialActive: trialActive,
-          trialExpired: !trialActive });
+      const st = await trialState(env, v.sub);
+      return json(Object.assign({ ok: true }, st));
+    }
+
+    // ---- Boleto de un solo uso: regreso automático a la app instalada ----
+    // En Android el login con Google siempre se completa en el navegador del
+    // sistema (el teléfono saca la página de Google de la app instalada).
+    // La pestaña del sistema, tras verificar con /trial, pide aquí un boleto
+    // con el ID token y reabre la app instalada con ?t=<boleto>. La app lo
+    // canjea abajo y entra directo a los grupos, sin pasar por Google.
+    // El boleto vive 5 minutos, sirve una sola vez y solo entrega el estado
+    // de la prueba de esa cuenta (no es una credencial de Google).
+    if (url.pathname === '/ticket' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return json({ ok: false, reason: 'limite' }, 429);
       }
-      const ts = now;
-      await env.SUBS.put(key, JSON.stringify({ trialStart: ts, createdAt: ts }));
-      return json({ ok: true, trialUsed: false, trialStart: ts,
-        trialExpiresAt: ts + TRIAL_MS, trialActive: true, trialExpired: false });
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const v = await verifyFirebaseIdToken(
+        body && body.idToken, env.FB_PROJECT || 'la-cuota');
+      if (!v.ok) return json({ ok: false, reason: v.reason }, 401);
+      const st = await trialState(env, v.sub);
+      const ticket = hexRandom(24);
+      await env.SUBS.put('ticket:' + ticket, JSON.stringify({
+        sub: v.sub,
+        trialStart: st.trialStart, trialUsed: st.trialUsed,
+        trialActive: st.trialActive, trialExpired: st.trialExpired,
+        createdAt: Date.now(),
+      }), { expirationTtl: 300 });
+      return json({ ok: true, ticket: ticket });
+    }
+
+    // POST /ticket/redeem {ticket} -> estado de la prueba (un solo uso).
+    if (url.pathname === '/ticket/redeem' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return json({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const ticket = String((body && body.ticket) || '');
+      if (!/^[0-9a-f]{48}$/.test(ticket)) {
+        return json({ ok: false, reason: 'boleto' }, 400);
+      }
+      const rec = await env.SUBS.get('ticket:' + ticket, 'json');
+      if (!rec) return json({ ok: false, reason: 'boleto' }, 404);
+      try { await env.SUBS.delete('ticket:' + ticket); } catch (e) { /* noop */ }
+      return json({ ok: true, sub: rec.sub,
+        trialStart: rec.trialStart, trialUsed: rec.trialUsed,
+        trialActive: rec.trialActive, trialExpired: rec.trialExpired });
     }
 
     // ---- Verificación de suscripción (la app llama aquí) ----

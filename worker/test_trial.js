@@ -105,6 +105,7 @@ function b64url(obj) {
         return type === 'json' ? JSON.parse(v) : v;
       },
       put: async (k, v) => { store.set(k, v); },
+      delete: async (k) => { store.delete(k); },
     },
   };
   async function postTrial(token, ip) {
@@ -148,6 +149,49 @@ function b64url(obj) {
   t('/trial token inválido → 401', r4.status === 401 && r4.body.ok === false, r4.status);
   const r5 = await W.default.fetch(new Request('https://x/trial', { method: 'OPTIONS' }), env);
   t('/trial responde preflight CORS', r5.status === 204);
+
+  /* 4. Boleto de un solo uso (/ticket + /ticket/redeem). */
+  async function postTicket(token, ip) {
+    const req = new Request('https://x/ticket', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip || '5.6.7.8' },
+      body: JSON.stringify({ idToken: token }),
+    });
+    const res = await W.default.fetch(req, env);
+    return { status: res.status, body: await res.json() };
+  }
+  async function postRedeem(ticket, ip) {
+    const req = new Request('https://x/ticket/redeem', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip || '5.6.7.8' },
+      body: JSON.stringify({ ticket: ticket }),
+    });
+    const res = await W.default.fetch(req, env);
+    return { status: res.status, body: await res.json() };
+  }
+  const t1 = await postTicket(await mint(Object.assign({}, base, { sub: 'boleto-uno' })));
+  t('/ticket con token válido entrega un boleto',
+    t1.status === 200 && t1.body.ok === true && /^[0-9a-f]{48}$/.test(t1.body.ticket || ''),
+    JSON.stringify(t1.body).slice(0, 80));
+  const t2 = await postTicket('basura');
+  t('/ticket con token inválido → 401', t2.status === 401 && t2.body.ok === false, t2.status);
+  const rd1 = await postRedeem(t1.body.ticket);
+  t('/ticket/redeem canjea el boleto y trae el estado de la prueba',
+    rd1.status === 200 && rd1.body.ok === true && rd1.body.sub === 'boleto-uno' &&
+    rd1.body.trialStart > 0 && rd1.body.trialActive === true,
+    JSON.stringify(rd1.body).slice(0, 120));
+  const rd2 = await postRedeem(t1.body.ticket);
+  t('/ticket/redeem el boleto sirve una sola vez (segundo canje → 404)',
+    rd2.status === 404 && rd2.body.ok === false, rd2.status);
+  const rd3 = await postRedeem('no-es-un-boleto');
+  t('/ticket/redeem boleto malformado → 400', rd3.status === 400 && rd3.body.ok === false, rd3.status);
+  /* El boleto respeta la prueba ya usada: no regala días. */
+  const tV = await postTicket(await mint(Object.assign({}, base, { sub: subVieja })));
+  const rdV = await postRedeem(tV.body.ticket);
+  t('/ticket/redeem con prueba vencida: conserva la fecha original, sin extender',
+    rdV.body.ok === true && rdV.body.trialUsed === true &&
+    rdV.body.trialStart === inicioViejo && rdV.body.trialExpired === true,
+    JSON.stringify(rdV.body).slice(0, 120));
 
   console.log('\n' + count + ' pruebas, ' + failures + ' fallos');
   process.exit(failures ? 1 : 0);
