@@ -292,7 +292,9 @@ input:focus{border-bottom-color:var(--ink)}
 .btn-google .gG{font-size:20px;font-weight:700;color:#4285F4}
 
 /* ---- PÁGINA DE ENTRADA (landing) ---- */
-#v-verify.view{padding:0;display:flex;flex-direction:column;min-height:100dvh}
+/* La sección de entrada nunca necesita scroll: se bloquea el rebote táctil */
+body:has(#v-verify:not([hidden])){overflow:hidden;position:fixed;width:100%}
+#v-verify.view{padding:0;display:flex;flex-direction:column;min-height:100dvh;overflow:hidden;overscroll-behavior:none}
 .lp-top{text-align:center;padding:18px 22px 0;flex:none}
 .lp-app-icon{margin:0 auto 8px;width:52px;height:52px}
 .lp-app-icon img{width:52px;height:52px;border-radius:13px;box-shadow:0 3px 14px rgba(0,0,0,.13);display:block}

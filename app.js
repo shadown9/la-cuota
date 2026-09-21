@@ -280,8 +280,13 @@ function googleLogin(){
 var TRIAL_DAYS = 30;
 function trialDaysLeft(){
   if (!S.trialStart) return TRIAL_DAYS;
-  var used = Math.floor((Date.now()-S.trialStart)/86400000);
-  return Math.max(0, TRIAL_DAYS-used);
+  /* Comparar por días de calendario, no por bloques de 24 h: así el día
+     siguiente al inicio ya muestra 29 aunque hayan pasado solo unas horas. */
+  var s = new Date(S.trialStart), t = new Date();
+  var startMid = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  var todayMid = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  var used = Math.round((todayMid - startMid) / 86400000);
+  return Math.max(0, TRIAL_DAYS - used);
 }
 function locked(){ return S.trialStart>0 && trialDaysLeft()<=0 && !S.payActive; }
 /* Si el usuario ya tiene grupos pero no hay trialStart (recuperó sus datos
@@ -1654,7 +1659,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 74;
+var APP_V = 75;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
