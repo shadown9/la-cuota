@@ -298,6 +298,109 @@ function planFromAmount(cents) {
 /* Duración de la prueba gratis: 30 días (la usa /trial). */
 const TRIAL_MS = 30 * 86400000;
 
+/* ---------- Google Play Billing: verificación en el servidor ----------
+   La app Android (TWA) cobra con la Digital Goods API y nos envía el
+   purchaseToken. Aquí lo verificamos contra la Play Developer API con una
+   cuenta de servicio (env.PLAY_SA_EMAIL / env.PLAY_SA_KEY, secretos del
+   Worker) y atamos el derecho de acceso al sub de Google de la cuenta
+   (clave 'playsub:<sha256(sub)>'). Sin verificación con Google no se
+   concede acceso. Si la compra está sin reconocer, la reconocemos
+   (acknowledge); sin eso Play la reembolsa a los 3 días. */
+const PLAY_PKG = 'org.lacuota.app';
+const PLAY_PLAN = { lacuota_mensual: 'mensual', lacuota_anual: 'anual' };
+
+function b64urlEncodeBytes(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlEncodeStr(s) { return b64urlEncodeBytes(new TextEncoder().encode(s)); }
+function pemToDerPrivate(pem) {
+  const b64 = String(pem).replace(/-----BEGIN PRIVATE KEY-----/, '')
+    .replace(/-----END PRIVATE KEY-----/, '').replace(/\s+/g, '');
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function importRsaSignKey(pkcs8Buf) {
+  let last = null;
+  for (const name of RSA_NAMES) {
+    try {
+      const key = await crypto.subtle.importKey(
+        'pkcs8', pkcs8Buf, { name, hash: 'SHA-256' }, false, ['sign']);
+      return { key, name };
+    } catch (e) { last = e; }
+  }
+  throw last;
+}
+/* Token de acceso OAuth2 con la cuenta de servicio (flujo JWT).
+   Se cachea ~55 minutos. fetchFn es inyectable para pruebas. */
+let playTokCache = { at: 0, token: null };
+async function playAccessToken(env, fetchFn) {
+  if (playTokCache.token && Date.now() - playTokCache.at < 3300e3) return playTokCache.token;
+  const email = env.PLAY_SA_EMAIL, keyPem = env.PLAY_SA_KEY;
+  if (!email || !keyPem) throw new Error('sin_cuenta_servicio');
+  const now = Math.floor(Date.now() / 1000);
+  const unsigned = b64urlEncodeStr(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' +
+    b64urlEncodeStr(JSON.stringify({ iss: email,
+      scope: 'https://www.googleapis.com/auth/androidpublisher',
+      aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 }));
+  const k = await importRsaSignKey(pemToDerPrivate(keyPem).slice().buffer);
+  const sig = await crypto.subtle.sign({ name: k.name, hash: 'SHA-256' }, k.key,
+    new TextEncoder().encode(unsigned));
+  const jwt = unsigned + '.' + b64urlEncodeBytes(new Uint8Array(sig));
+  const f = fetchFn || fetch;
+  const r = await f('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer' +
+          '&assertion=' + encodeURIComponent(jwt),
+  });
+  const d = await r.json();
+  if (!r.ok || !d.access_token) throw new Error('token_google');
+  playTokCache = { at: Date.now(), token: d.access_token };
+  return d.access_token;
+}
+async function playSubGet(env, purchaseToken, fetchFn) {
+  const tok = await playAccessToken(env, fetchFn);
+  const f = fetchFn || fetch;
+  const r = await f('https://androidpublisher.googleapis.com/androidpublisher/v3/applications/' +
+    PLAY_PKG + '/purchases/subscriptionsv2/tokens/' + encodeURIComponent(purchaseToken),
+    { headers: { 'Authorization': 'Bearer ' + tok } });
+  if (r.status === 404 || r.status === 400) return { ok: false, reason: 'token_invalido' };
+  if (!r.ok) return { ok: false, reason: 'google' };
+  return { ok: true, data: await r.json() };
+}
+async function playSubAck(env, purchaseToken, fetchFn) {
+  const tok = await playAccessToken(env, fetchFn);
+  const f = fetchFn || fetch;
+  const r = await f('https://androidpublisher.googleapis.com/androidpublisher/v3/applications/' +
+    PLAY_PKG + '/purchases/subscriptionsv2/tokens/' + encodeURIComponent(purchaseToken) +
+    ':acknowledge',
+    { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok, 'content-type': 'application/json' }, body: '{}' });
+  return r.ok;
+}
+/* Interpreta la respuesta de subscriptionsv2: ¿activa? ¿qué plan? ¿hasta
+   cuándo? ¿falta reconocer? Función pura, probada en test_trial.js. */
+function playEvalSubscription(data, wantSku) {
+  const items = (data && data.lineItems) || [];
+  const li = items.filter(x => x.productId === wantSku)[0] || items[0] || {};
+  const state = (data && data.subscriptionState) || '';
+  const active = (state === 'SUBSCRIPTION_STATE_ACTIVE' ||
+                  state === 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD');
+  let exp = null;
+  for (const it of items) {
+    if (it.expiryTime && (!exp || it.expiryTime > exp)) exp = it.expiryTime;
+  }
+  return {
+    active,
+    state,
+    productId: li.productId || wantSku,
+    expiryTime: exp || li.expiryTime || null,
+    pendingAck: data && data.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING',
+  };
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -540,6 +643,78 @@ export default {
       }
     }
 
+    // ---- Google Play: verificación de compra (la app Android llama aquí) ----
+    // POST /play-verify {purchaseToken, productId, googleSub} ->
+    //   {ok, active, plan, until}. Verifica el token con Google, reconoce
+    //   la compra si falta, y ata el acceso al sub de la cuenta.
+    if (url.pathname === '/play-verify' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return j({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const purchaseToken = String((body && body.purchaseToken) || '');
+      const productId = String((body && body.productId) || '');
+      const googleSub = String((body && body.googleSub) || '');
+      if (!purchaseToken || purchaseToken.length > 1024 ||
+          !PLAY_PLAN[productId] || !googleSub) {
+        return j({ ok: false, reason: 'datos' }, 400);
+      }
+      let pv;
+      try { pv = await playSubGet(env, purchaseToken); }
+      catch (e) { return j({ ok: false, reason: 'sin_servicio' }, 503); }
+      if (!pv.ok) return j({ ok: false, reason: pv.reason }, 400);
+      const ev = playEvalSubscription(pv.data, productId);
+      const key = 'playsub:' + await sha256Hex(googleSub);
+      if (ev.pendingAck) { try { await playSubAck(env, purchaseToken); } catch (e) { /* noop */ } }
+      await env.SUBS.put(key, JSON.stringify({
+        active: ev.active, state: ev.state, productId: ev.productId,
+        expiryTime: ev.expiryTime, updatedAt: Date.now(),
+        purchaseToken: purchaseToken,
+      }));
+      return j({ ok: true, active: ev.active, plan: PLAY_PLAN[ev.productId] || null,
+        until: ev.expiryTime, state: ev.state });
+    }
+
+    // ---- Google Play: estado de la suscripción (la app llama aquí) ----
+    // POST /play-sub {googleSub} -> {active, plan, until}. Re-verifica con
+    // Google cuando hay token guardado (renovaciones y cancelaciones); si
+    // Google no responde, usa el registro guardado con 3 días de margen.
+    if (url.pathname === '/play-sub' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return j({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const googleSub = String((body && body.googleSub) || '');
+      if (!googleSub) return j({ active: false }, 400);
+      const key = 'playsub:' + await sha256Hex(googleSub);
+      let rec = await env.SUBS.get(key, 'json');
+      if (!rec) return j({ active: false });
+      if (rec.purchaseToken) {
+        try {
+          const pv = await playSubGet(env, rec.purchaseToken);
+          if (pv.ok) {
+            const ev = playEvalSubscription(pv.data, rec.productId);
+            if (ev.pendingAck) { try { await playSubAck(env, rec.purchaseToken); } catch (e) { /* noop */ } }
+            rec = { active: ev.active, state: ev.state, productId: ev.productId,
+              expiryTime: ev.expiryTime, updatedAt: Date.now(),
+              purchaseToken: rec.purchaseToken };
+            await env.SUBS.put(key, JSON.stringify(rec));
+          }
+        } catch (e) { /* sin servicio: se usa el registro guardado */ }
+      }
+      let active = !!rec.active;
+      if (rec.expiryTime) {
+        const exp = Date.parse(rec.expiryTime);
+        if (!isNaN(exp) && Date.now() > exp + 72 * 3600e3) active = false;
+      }
+      return j({ active, plan: PLAY_PLAN[rec.productId] || null,
+        until: rec.expiryTime || null, state: rec.state || null });
+    }
+
     return new Response('La Cuota · verificador de pagos', { status: 200 });
   }
 };
@@ -561,4 +736,4 @@ function json(obj, status = 200, origin = '') {
 }
 
 /* Exportadas para las pruebas (node). */
-export { verifyFirebaseIdToken, verifyGoogleIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey };
+export { verifyFirebaseIdToken, verifyGoogleIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey, playEvalSubscription, b64urlEncodeStr, pemToDerPrivate };

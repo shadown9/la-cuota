@@ -12,9 +12,9 @@ function load(){
     var raw = localStorage.getItem(KEY);
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
       s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; s.ui=s.ui||{};
-      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; return s; }
+      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; s.payVia=s.payVia||''; return s; }
   }catch(e){}
-  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{},
+  return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', payVia:'', notifyPay:false, ui:{},
     /* Identidad: la prueba gratis exige una cuenta de Google verificada en
        el servidor (una cuenta = una prueba). */
     googleOk:false, googleSub:'', googleTrialStart:0};
@@ -1048,6 +1048,7 @@ function renderPay(){
 /* Antes de ir a Stripe: explicación clara del plan, sin sorpresas.
    El botón "Continuar al pago" sí va en el toque (gesto real). */
 function planExplain(which){
+  if(esAndroidTWA()){ planExplainPlay(which); return; }
   var anual = which === 'yearly';
   openSheet('<h3>Plan '+(anual?'Anual':'Mensual')+'</h3>'+
     '<p class="sub"><b>'+(anual?'$20 al año':'$2 al mes')+'</b> por grupo.</p>'+
@@ -1061,14 +1062,32 @@ function planExplain(which){
   on('planBack', 'click', closeSheet);
   on('planGoPay', 'click', function(){ closeSheet(); payGo(which); });
 }
+/* En Android el pago es por Google Play: explicación sin mencionar ni
+   enlazar ningún pago web (política de la tienda). */
+function planExplainPlay(which){
+  var anual = which === 'yearly';
+  openSheet('<h3>Plan '+(anual?'Anual':'Mensual')+'</h3>'+
+    '<p class="sub"><b>'+(anual?'$20 al año':'$2 al mes')+'</b> por grupo.</p>'+
+    '<p class="sub">'+(anual
+      ? 'Un solo pago de $20 que cubre 12 meses (el precio de 10). Se renueva cada año.'
+      : 'Se cobran $2 cada mes. Se renueva automáticamente.')+'</p>'+
+    '<p class="sub">El pago se hace con <b>Google Play</b>, seguro y sin salir de la aplicación.</p>'+
+    '<p class="sub">Cancela cuando quieras desde tus suscripciones de Google Play. Tus datos nunca se borran.</p>'+
+    '<button class="btn-primary btn-block" id="planGoPay">Continuar al pago</button>'+
+    '<button class="linkbtn" id="planBack">Atrás</button>');
+  on('planBack', 'click', closeSheet);
+  on('planGoPay', 'click', function(){ closeSheet(); comprarPlay(which); });
+}
 /* Abre el enlace de pago real de Stripe (modo live) */
 function payGo(which){
+  if(esAndroidTWA()){ comprarPlay(which); return; }
   S.pendingPlan = which; save();
   window.open(STRIPE_LINKS[which], '_blank');
 }
 /* Suscripción: si ya paga, abre el portal; si no, lleva a la página para
    suscribirse (pedirle el correo a quien nunca pagó no tiene sentido). */
 function manageSub(){
+  if(esAndroidTWA()){ manageSubPlay(); return; }
   if(!S.payActive){ renderPay(); return; }
   var email = (S.payEmail || '').trim();
   if(email){ openPortal(email); return; } /* un toque: ya conocemos el correo */
@@ -1159,6 +1178,117 @@ function payCheck(email){
   return fetch(PAY_VERIFY_URL + '/sub?email=' + encodeURIComponent(email), {cache:'no-store'})
     .then(function(r){ return r.json(); })
     .catch(function(){ return {active:false, offline:true}; });
+}
+/* ---------- PAGOS GOOGLE PLAY (solo la app instalada de Android) ----------
+   La Digital Goods API solo existe dentro de la TWA instalada (el AAB se
+   compiló con Play Billing activado). En la web se usa Stripe; dentro de
+   Android ni se menciona ni se enlaza Stripe (política de la tienda). */
+var PLAY_SKUS = ['lacuota_mensual', 'lacuota_anual'];
+var PLAY_PKG = 'org.lacuota.app';
+function esAndroidTWA(){ return (typeof window !== 'undefined' && typeof window.getDigitalGoodsService === 'function'); }
+var _dgSvc = null;
+function dgService(){
+  if(_dgSvc) return Promise.resolve(_dgSvc);
+  if(!esAndroidTWA()) return Promise.resolve(null);
+  return window.getDigitalGoodsService('https://play.google.com/billing')
+    .then(function(s){ _dgSvc = s; return s; })
+    .catch(function(){ return null; });
+}
+function playVerificar(purchaseToken, productId){
+  return fetch(PAY_VERIFY_URL + '/play-verify', {method:'POST',
+      headers:{'content-type':'application/json'},
+      body: JSON.stringify({purchaseToken:purchaseToken, productId:productId,
+        googleSub:S.googleSub||''})})
+    .then(function(r){ return r.json(); })
+    .catch(function(){ return null; });
+}
+function playEstado(){
+  if(!S.googleSub) return Promise.resolve(null);
+  return fetch(PAY_VERIFY_URL + '/play-sub', {method:'POST',
+      headers:{'content-type':'application/json'},
+      body: JSON.stringify({googleSub:S.googleSub})})
+    .then(function(r){ return r.json(); })
+    .catch(function(){ return null; });
+}
+/* Compra un plan por Google Play. Solo se marca éxito cuando el servidor
+   confirma la compra de verdad; si el usuario cierra la ventana, no pasa nada. */
+function comprarPlay(which){
+  if(!S.googleSub){ toast('Entra con tu cuenta primero.'); return; }
+  toast('Abriendo el pago…');
+  dgService().then(function(svc){
+    if(!svc){ toast('El pago de la tienda no está disponible aquí.'); return; }
+    var sku = (which==='yearly') ? 'lacuota_anual' : 'lacuota_mensual';
+    var precio = (which==='yearly') ? '20.00' : '2.00';
+    var pr;
+    try{
+      pr = new PaymentRequest(
+        [{supportedMethods:'https://play.google.com/billing', data:{sku:sku}}],
+        {total:{label:'La Cuota', amount:{currency:'USD', value:precio}}});
+    }catch(e){ toast('El pago de la tienda no está disponible aquí.'); return; }
+    pr.show().then(function(resp){
+      var pt = resp.details && resp.details.purchaseToken;
+      var comprado = (resp.details && resp.details.itemId) || sku;
+      if(!pt){ resp.complete('fail'); toast('No se completó el pago.'); return; }
+      playVerificar(pt, comprado).then(function(ver){
+        if(ver && ver.ok && ver.active){
+          S.payActive = true; S.payVia = 'play';
+          S.payPlan = (ver.plan==='anual') ? 'yearly' : 'monthly';
+          S.payAt = Date.now(); save();
+          toast('Suscripción activada.');
+          resp.complete('success').then(function(){ route(); });
+        }else{
+          resp.complete('fail');
+          toast('No se pudo confirmar el pago. Si te cobraron, se reembolsa solo.');
+        }
+      });
+    }).catch(function(){ /* el usuario cerró la ventana de pago: no es error */ });
+  });
+}
+/* Al arrancar en Android: re-verifica las compras de Google Play en este
+   teléfono (restaura y refresca renovaciones), el registro del servidor
+   (compra hecha en otro teléfono) y Stripe (pagó en la web). Cualquiera
+   activo desbloquea: es una sola cuenta con un único derecho de acceso.
+   Sin conexión no se toca nada (nadie pierde acceso por estar offline). */
+function playSyncAlArrancar(){
+  var p1 = dgService().then(function(svc){
+    if(!svc) return false;
+    return svc.listPurchases().then(function(compras){
+      var ps = (compras||[]).map(function(c){
+        return playVerificar(c.purchaseToken, c.itemId)
+          .then(function(v){ return !!(v && v.ok && v.active); })
+          .catch(function(){ return false; });
+      });
+      return Promise.all(ps).then(function(rs){
+        return rs.some(function(x){ return x; });
+      });
+    }).catch(function(){ return false; });
+  }).catch(function(){ return false; });
+  var p2 = playEstado().then(function(st){ return !!(st && st.active); })
+    .catch(function(){ return false; });
+  var p3 = S.payEmail
+    ? payCheck(S.payEmail).then(function(r){
+        return (r && !r.offline) ? !!r.active : 'offline';
+      }).catch(function(){ return 'offline'; })
+    : Promise.resolve(false);
+  Promise.all([p1, p2, p3]).then(function(rs){
+    var okPlay = rs[0] || rs[1], stStripe = rs[2];
+    var antes = S.payActive;
+    if(okPlay || stStripe === true){
+      S.payActive = true; S.payVia = okPlay ? 'play' : 'stripe'; save();
+      if(!antes) route();
+    }else if(antes && (S.payVia === 'play' || stStripe === false)){
+      /* Se cayó el acceso de Play, o Stripe dice que ya no está activa
+         (con correo conocido): se desactiva sola. Sin conexión no se toca. */
+      if(stStripe !== 'offline'){ S.payActive = false; S.payVia = ''; save(); route(); }
+    }
+  });
+}
+/* Las suscripciones de Google Play solo se administran en la tienda. */
+function manageSubPlay(){
+  if(!S.payActive){ renderPay(); return; }
+  toast('Abriendo tus suscripciones…');
+  try{ window.open('https://play.google.com/store/account/subscriptions?package=' + PLAY_PKG, '_blank'); }
+  catch(e){ toast('Administra tu plan en la Play Store, en Suscripciones.'); }
 }
 /* Stripe redirige aquí después del pago: #/pago-ok.
    Solo se activa si el verificador confirma un pago real. */
@@ -1710,7 +1840,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 78;
+var APP_V = 79;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1931,11 +2061,14 @@ try{
   actualizarAntesDeEntrar(_code0 ? {c:_code0, s:_state0} : null);
 }catch(err){ bootFail(); }
 /* Re-verificar la suscripción en silencio al arrancar: si Stripe dice que
-   ya no está activa, se desactiva sola (nadie la mantiene a mano). */
-if(S.payActive && S.payEmail){
+   ya no está activa, se desactiva sola (nadie la mantiene a mano).
+   En Android se verifican las compras de Google Play además de Stripe. */
+if(esAndroidTWA()){
+  playSyncAlArrancar();
+}else if(S.payActive && S.payEmail){
   payCheck(S.payEmail).then(function(res){
     if(res && !res.offline && !res.active){
-      S.payActive = false; save(); route();
+      S.payActive = false; S.payVia=''; save(); route();
     }
   });
 }
