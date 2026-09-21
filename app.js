@@ -268,6 +268,20 @@ function ensureTrial(){
 var verNext = null;
 function showVerify(){
   verNext = verNext || null;
+  /* Si la puerta se abrió desde un grupo (p. ej. al anotar un pago) y no hay
+     un destino fijado, al terminar se vuelve a ese grupo en vez de a la
+     página inicial. Se guarda en sessionStorage porque el redirect de Google
+     navega fuera de la página y la memoria (verNext) se pierde al volver. */
+  if(!verNext){
+    try{
+      var enGrupo = false;
+      ['v-group','v-members','v-hist','v-pdetail'].forEach(function(v){
+        var el = document.getElementById(v); if(el && !el.hidden) enGrupo = true;
+      });
+      if(enGrupo && typeof curGid!=='undefined' && curGid && S.groups && S.groups[curGid])
+        sessionStorage.setItem('lacuota_verGid', curGid);
+    }catch(e){}
+  }
   var m = document.getElementById('verMsg');
   if(m){ m.hidden = true; m.textContent=''; }
   var b = document.getElementById('verGoogle');
@@ -363,6 +377,15 @@ function cuentaVerificar(userObj){
       S.trialStart = S.googleTrialStart;
       save();
       var next = verNext; verNext = null;
+      /* Si no hay destino en memoria, se recupera el grupo que estaba abierto
+         cuando salió la puerta (la vía del popup no pasa por retomarDestino).
+         La marca se consume siempre para no devolver a un grupo viejo. */
+      try{
+        var _g = sessionStorage.getItem('lacuota_verGid');
+        sessionStorage.removeItem('lacuota_verGid');
+        if(!next && _g && S.groups && S.groups[_g])
+          next = (function(id){ return function(){ openGroup(id); }; })(_g);
+      }catch(e){}
       verStep(null);
       /* Si se entró desde el navegador por el segundo camino, avisar que
          ya puede volver a la app instalada (la sesión es compartida). */
@@ -1608,7 +1631,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 58;
+var APP_V = 59;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

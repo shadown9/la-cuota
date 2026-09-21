@@ -824,6 +824,14 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /lacuota_desdeApp/.test(appJs));
   t('v58: tras verificar desde el navegador se avisa que vuelva a la app',
     /Vuelve a la app de La Cuota/.test(appJs));
+  /* v59 (estático): al verificar desde un grupo se vuelve al grupo, no a la
+     página inicial. El destino se guarda al mostrar la puerta y se consume
+     al verificar. */
+  t('v59: la puerta recuerda el grupo abierto para volver tras verificar',
+    /sessionStorage\.setItem\('lacuota_verGid', curGid\)/.test(appJs));
+  t('v59: al verificar sin destino en memoria se recupera el grupo guardado',
+    /sessionStorage\.getItem\('lacuota_verGid'\)/.test(appJs) &&
+    /next = \(function\(id\)\{ return function\(\)\{ openGroup\(id\); \}; \}\)\(_g\)/.test(appJs));
     /* 15o (v58): en la app instalada, tocar "Continuar con Google" navega a
      Google con redirect (el popup abriría una pestaña del sistema que nunca
      devuelve la sesión) y deja la marca para rescatar al volver. */
@@ -971,6 +979,46 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
         sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
       t('popup cerrado: sigue sin verificar',
         sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
+      resolve();
+    }, 60);
+  }));
+  /* 15z (v59): la puerta abierta desde un grupo vuelve al grupo tras
+     verificar, no a la página inicial. El destino se guarda al mostrar la
+     puerta (sobrevive al redirect porque va en sessionStorage) y se consume
+     al verificar. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithPopup: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_G1'); }}}); },
+          signInWithRedirect: function(){ return Promise.resolve(); },
+          getRedirectResult: function(){ return Promise.resolve(null); },
+          onAuthStateChanged: function(){ return function(){}; }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.fetch = function(){
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:777, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.enlace('#/g/g1'); /* entra al grupo */
+    sb.__lacuotaSub.verificar(); /* puerta sin destino (p. ej. al anotar un pago) */
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('puerta desde el grupo: verifica con el token del popup',
+        st.googleOk===true && st.trialStart===777, JSON.stringify(st));
+      t('puerta desde el grupo: vuelve al grupo, no a la página inicial',
+        sb.__els['v-group'].hidden===false && sb.__els['v-home'].hidden===true,
+        'v-group.hidden='+sb.__els['v-group'].hidden+' v-home.hidden='+sb.__els['v-home'].hidden);
+      t('puerta desde el grupo: la marca de destino se consume',
+        sb.sessionStorage.getItem('lacuota_verGid')===null,
+        String(sb.sessionStorage.getItem('lacuota_verGid')));
       resolve();
     }, 60);
   }));
