@@ -12,7 +12,7 @@ function load(){
     var raw = localStorage.getItem(KEY);
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
       s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; s.ui=s.ui||{};
-      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; return s; }
+      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; return s; }
   }catch(e){}
   return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{},
     /* Identidad: la prueba gratis exige una cuenta de Google verificada en
@@ -266,6 +266,9 @@ var FB_AUTH = {
     try{
       if(typeof google!=='undefined' && google.accounts && google.accounts.id){
         try{ google.accounts.id.cancel(); }catch(e){}
+        /* Que la próxima vez Google pida elegir la cuenta en vez de
+           volver a entrar solo con la anterior. */
+        try{ google.accounts.id.disableAutoSelect(); }catch(e){}
       }
     }catch(e){}
     try{ return firebase.auth().signOut(); }
@@ -367,16 +370,23 @@ function cuentaVerificar(userObj){
   /* Al volver del redirect de Google, currentUser puede tardar en estar
      listo: si ya tenemos el usuario del redirect, usarlo directo para
      evitar rebotar a Google otra vez. */
+  function freshSignIn(){
+    /* Con FedCM/popup el usuario llega aquí mismo con su credencial; con
+       redirect la página ya navegó y el resultado se procesa al volver. */
+    return FB_AUTH.signIn().then(function(cred){
+      if(cred && cred.user && cred.user.getIdToken) return cred.user.getIdToken();
+      return null;
+    });
+  }
   function takeToken(){
     if(userObj && userObj.getIdToken) return userObj.getIdToken();
+    /* Tras un "Cerrar sesión" explícito, jamás reutilizar la sesión vieja
+       que pueda quedar en el teléfono: siempre pasar por Google para que el
+       usuario elija la cuenta. Sin esto, la app entraba sola. */
+    if(S.expectNoSession) return freshSignIn();
     return FB_AUTH.token().then(function(existing){
       if(existing) return existing;
-      return FB_AUTH.signIn().then(function(cred){
-        /* Con FedCM/popup el usuario llega aquí mismo con su credencial; con
-           redirect la página ya navegó y el resultado se procesa al volver. */
-        if(cred && cred.user && cred.user.getIdToken) return cred.user.getIdToken();
-        return null;
-      });
+      return freshSignIn();
     });
   }
   takeToken().then(function(idToken){
@@ -396,6 +406,7 @@ function cuentaVerificar(userObj){
       var pruebaActiva = sabeEstado ? res.trialActive : !res.trialUsed;
       S.googleOk = true;
       S.googleSub = '';
+      S.expectNoSession = false;
       S.googleTrialStart = res.trialStart || Date.now();
       /* El servidor es la autoridad de la prueba de esta cuenta: al
          verificar, la fecha local se alinea con la del servidor. El
@@ -482,6 +493,9 @@ function cuentaVerificarRedirect(){
        varado en la puerta después de haber entrado con Google; ahora se
        completa con la sesión guardada. */
     if(S.googleOk || !L.needsVerify(S)) return;
+    /* Si el usuario tocó "Cerrar sesión", la sesión vieja que quede en el
+       teléfono no vale: él pidió salir. Jamás entrar solo. */
+    if(S.expectNoSession){ verStep(null); return; }
     verStep('Volviendo de Google…');
     var u0 = null;
     try{ u0 = FB_AUTH.user(); }catch(e){}
@@ -520,13 +534,44 @@ function cuentaVerificarRedirect(){
    el servidor realinea la prueba con la fecha original (nunca la
    extiende en el reingreso), así no se pierde ni se regala nada. */
 function cerrarSesion(){
-  S.googleOk = false; S.googleSub = ''; save();
+  /* Marca explícita de que el usuario pidió salir: aunque la sesión vieja
+     de Google siga viva en el teléfono, nada puede usarla para entrar solo
+     (ni el arranque ni el botón de continuar). Se limpia al verificar. */
+  S.googleOk = false; S.googleSub = ''; S.expectNoSession = true; save();
   verNext = function(){ renderHome(); };
   function puerta(){ showVerify(); }
+  function noSePudo(code){
+    /* Honestidad ante todo: si la sesión no se cerró de verdad, no fingir
+       que sí. Se queda adentro con su sesión intacta y se le dice claro. */
+    S.googleOk = true; S.expectNoSession = false; save();
+    try{ console.warn('[lacuota] google:', code); }catch(e){}
+    toast('No se pudo cerrar la sesión. Inténtalo de nuevo.');
+    renderHome();
+  }
+  function trasSignOut(){
+    var u = null;
+    try{ u = FB_AUTH.user(); }catch(e){}
+    if(u){
+      /* La sesión sigue viva: reintentar una vez antes de rendirse. */
+      try{
+        var r2 = FB_AUTH.signOut();
+        var fin2 = function(){
+          var u2 = null;
+          try{ u2 = FB_AUTH.user(); }catch(e){}
+          if(u2) noSePudo('signout-zombie'); else puerta();
+        };
+        if(r2 && r2.then) r2.then(fin2, function(){ noSePudo('signout-reintento'); });
+        else fin2();
+      }catch(e){ noSePudo('signout-ex'); }
+      return;
+    }
+    puerta();
+  }
   try{
     var r = FB_AUTH.signOut();
-    if(r && r.then) r.then(puerta, puerta); else puerta();
-  }catch(e){ puerta(); }
+    if(r && r.then) r.then(trasSignOut, function(){ noSePudo('signout-fallo'); });
+    else trasSignOut();
+  }catch(e){ noSePudo('signout-ex'); }
 }
 
 /* ---------- navegación ---------- */
@@ -1136,7 +1181,7 @@ window.__lacuotaSub = {
   /* Verificación con Google (una prueba por cuenta) */
   verificar: function(){ verNext=null; showVerify(); },
   necesitaVerificar: function(){ return L.needsVerify(S); },
-  cuenta: function(){ return {googleOk:!!S.googleOk, trialStart:S.trialStart||0}; },
+  cuenta: function(){ return {googleOk:!!S.googleOk, trialStart:S.trialStart||0, expectNoSession:!!S.expectNoSession}; },
   redir: function(){ cuentaVerificarRedirect(); },
   setAuth: function(a){ FB_AUTH = a; },
 };
@@ -1595,7 +1640,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 54;
+var APP_V = 55;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

@@ -510,7 +510,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     return { lacuota_v1: JSON.stringify({
       groups:o.groups||{}, members:{}, payments:o.payments||{}, payTs:{}, delMembers:{}, unpays:{},
       onboarded:true, trialStart:o.trialStart||0, payActive:!!o.payActive, payEmail:o.payEmail||'',
-      notifyPay:false, ui:{}, googleOk:!!o.googleOk
+      notifyPay:false, ui:{}, googleOk:!!o.googleOk, expectNoSession:!!o.expectNoSession
     })};
   }
   var threw = null;
@@ -783,6 +783,16 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     && !/id="setSignOut"/.test(indexHtml));
   t('v54: Ajustes ya no tiene "Cerrar sesión" (no es por grupo)',
     !/setSignOut/.test(appJs));
+  t('v55: cerrar sesión marca expectNoSession y verifica que la sesión murió',
+    /S\.expectNoSession = true/.test(appJs) && /noSePudo\('signout-zombie'\)/.test(appJs));
+  t('v55: tras cerrar sesión, continuar siempre pasa por Google (no reutiliza la vieja)',
+    /if\(S\.expectNoSession\) return freshSignIn\(\);/.test(appJs));
+  t('v55: el arranque no entra solo con la sesión vieja si se pidió salir',
+    /if\(S\.expectNoSession\)\{ verStep\(null\); return; \}/.test(appJs));
+  t('v55: al verificar se limpia la marca de cierre',
+    /S\.expectNoSession = false;/.test(appJs));
+  t('v55: al cerrar sesión se apaga el auto-entrar de Google',
+    /disableAutoSelect\(\)/.test(appJs));
   /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
      devuelve el token sin salir de la página; se canjea por la sesión de
      Firebase y la prueba se verifica con el token del usuario real. */
@@ -911,12 +921,17 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     }, 60);
   }));
   /* 15s (v54): "Cerrar sesión" está en el inicio (no en Ajustes): cierra la
-     sesión de Google y vuelve a mostrar la puerta, sin tocar grupos ni pagos. */
+     sesión de Google y vuelve a mostrar la puerta, sin tocar grupos ni pagos.
+     v55: además deja la marca expectNoSession y apaga el auto-entrar de Google. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml),
       seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
     loadApp(sb);
-    var signOutCalls = 0;
+    var signOutCalls = 0, dasCalls = 0;
+    sb.google = { accounts: { id: {
+      cancel: function(){},
+      disableAutoSelect: function(){ dasCalls++; }
+    }}};
     sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
       return { signOut:function(){ signOutCalls++; return Promise.resolve(); } };
     }};
@@ -924,12 +939,73 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
       t('cerrar sesión: llamó a signOut de Firebase', signOutCalls===1, signOutCalls+' llamadas');
+      t('cerrar sesión: apaga el auto-entrar de Google (disableAutoSelect)', dasCalls===1, dasCalls+' llamadas');
+      t('cerrar sesión: deja la marca "pedí salir" (expectNoSession)', st.expectNoSession===true, JSON.stringify(st));
       t('cerrar sesión: limpia la verificación', st.googleOk===false, JSON.stringify(st));
       t('cerrar sesión: muestra la puerta de Google', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
       t('cerrar sesión: la puerta vuelve a pedir verificación (grupos intactos)',
         sb.__lacuotaSub.necesitaVerificar()===true, String(sb.__lacuotaSub.necesitaVerificar()));
       t('cerrar sesión: la puerta muestra la versión en letra pequeña',
         /^v\d+$/.test(sb.__els['verVer'].textContent), sb.__els['verVer'].textContent);
+      resolve();
+    }, 60);
+  }));
+  /* 15t (v55): si la sesión vieja sigue viva al arrancar tras un cierre
+     explícito, la app NO entra sola: se queda en la puerta. Sin la marca,
+     el rescate de redirect (v49) sigue funcionando igual. */
+  asyncTests.push(new Promise(function(resolve){
+    function bootConZombie(flag, cb){
+      var sb = psb({ids: idsFromHtml(indexHtml),
+        seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, expectNoSession:flag})});
+      var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
+      sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+        return {
+          currentUser: zombie,
+          signOut:function(){ return Promise.resolve(); },
+          getRedirectResult:function(){ return Promise.resolve(null); },
+          onAuthStateChanged:function(){ return function(){}; }
+        };
+      }};
+      var fetchCalls = 0;
+      /* nube.js también habla con la base al arrancar: aquí solo cuenta la
+         verificación de la cuenta contra el worker (/trial). */
+      sb.fetch = function(url){ if(String(url).indexOf('/trial')>=0) fetchCalls++; return Promise.reject(new Error('offline')); };
+      loadApp(sb);
+      setTimeout(function(){ cb(sb, fetchCalls); }, 60);
+    }
+    bootConZombie(true, function(sb, fetchCalls){
+      var st = sb.__lacuotaSub.cuenta();
+      t('con marca de cierre: no intenta verificar la sesión vieja', fetchCalls===0, fetchCalls+' fetch');
+      t('con marca de cierre: sigue sin verificar', st.googleOk===false, JSON.stringify(st));
+      t('con marca de cierre: se queda en la puerta', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
+      bootConZombie(false, function(sb2, fetchCalls2){
+        t('sin marca (rescate v49): sí completa con la sesión guardada', fetchCalls2===1, fetchCalls2+' fetch');
+        resolve();
+      });
+    });
+  }));
+  /* 15u (v55): si el cierre no logra matar la sesión, no finge que cerró:
+     avisa con mensaje amable y te deja adentro con tu sesión intacta. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
+    loadApp(sb);
+    var signOutCalls = 0;
+    var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
+    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+      return { currentUser: zombie,
+        signOut:function(){ signOutCalls++; return Promise.resolve(); } };
+    }};
+    sb.__els['homeSignOut']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('cierre fallido: reintentó cerrar la sesión', signOutCalls===2, signOutCalls+' llamadas');
+      t('cierre fallido: no finge, restaura la sesión', st.googleOk===true && st.expectNoSession===false, JSON.stringify(st));
+      t('cierre fallido: se queda en el inicio (no muestra la puerta)',
+        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      t('cierre fallido: avisa amable, sin códigos',
+        /No se pudo cerrar la sesión/.test(sb.__els['toast'].textContent) && !/signout/.test(sb.__els['toast'].textContent),
+        sb.__els['toast'].textContent);
       resolve();
     }, 60);
   }));
