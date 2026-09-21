@@ -642,6 +642,41 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     t('puerta al arrancar sin enlace: no guarda nada pendiente',
       sb2.sessionStorage.getItem('lacuota_verHash')===null);
   })();
+  /* 15k (v49): el redirect de Google se entrega UNA vez. Si la página se
+     recargó después (actualización automática, pestaña restaurada), el
+     resultado viene vacío aunque la sesión siga viva: la app completa la
+     verificación con la sesión guardada en vez de varar al usuario. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    var fetchCalls = [];
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      /* redirect ya consumido: no trae usuario... */
+      redirectResult: function(){ return Promise.resolve(null); },
+      /* ...pero la sesión de Google sigue viva en el teléfono */
+      user: function(){ return {getIdToken:function(){ return Promise.resolve('TOKEN_SESION'); }}; },
+      onUser: function(cb){ return function(){}; },
+      signIn: function(){ return Promise.resolve(null); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.fetch = function(url, opts){
+      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:777, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.redir();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('redirect consumido + sesión viva: verifica con la sesión guardada',
+        st.googleOk===true && st.trialStart===777, JSON.stringify(st));
+      t('redirect consumido + sesión viva: llamó a /trial con el token de la sesión',
+        fetchCalls.length===1 && /TOKEN_SESION/.test(fetchCalls[0].body),
+        fetchCalls.length+' llamadas');
+      t('redirect consumido + sesión viva: entra al inicio',
+        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      resolve();
+    }, 60);
+  }));
   /* 15i: al verificar, la fecha local se alinea con la del servidor
      (autoridad), sin importar si había prueba local. */
   t('al verificar se adopta la fecha del servidor',

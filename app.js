@@ -174,6 +174,11 @@ var FB_AUTH = {
     try{ return firebase.auth().getRedirectResult(); }
     catch(e){ return Promise.resolve(null); }
   },
+  /* Observa la sesión guardada de Google (sobrevive recargas). */
+  onUser: function(cb){
+    try{ return firebase.auth().onAuthStateChanged(cb); }
+    catch(e){ return function(){}; }
+  },
   token: function(){
     var u = FB_AUTH.user();
     return u ? u.getIdToken() : Promise.resolve(null);
@@ -296,34 +301,65 @@ function cuentaVerificar(userObj){
     });
   }).catch(function(e){
     var code = (e && e.code) || '';
+    var emsg = String((e && e.message) || '');
     if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
       msg('Se canceló el inicio de sesión. Tócalo de nuevo cuando quieras.');
+    }else if(/rechazado/.test(emsg)){
+      msg('Google no autorizó esta cuenta para la prueba. Prueba con otra cuenta de Google.');
     }else{
-      msg('No se pudo verificar. Inténtalo de nuevo.');
+      msg('No se pudo verificar. Revisa tu internet e inténtalo de nuevo.');
     }
   });
 }
 /* Al volver del redirect de Google, completa la verificación. */
 function cuentaVerificarRedirect(){
   if(!FB_AUTH.ready()) return;
-  FB_AUTH.redirectResult().then(function(result){
-    if(result && result.user){
-      var vv = document.getElementById('v-verify');
-      if(!vv || vv.hidden) showVerify();
-      /* El redirect recarga la página: recuperar a dónde iba el usuario. */
-      var gid = null;
-      try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
-      if(gid) verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
-      else{
-        /* Puerta al arrancar: si venía con un enlace (tesorero/miembro,
-           pago-ok, etc.), retomarlo tras verificar. */
-        var vh = null;
-        try{ vh = sessionStorage.getItem('lacuota_verHash'); sessionStorage.removeItem('lacuota_verHash'); }catch(e){}
-        if(vh){ try{ if((location.hash||'')!==vh) location.hash = vh; }catch(e2){}
-          verNext = function(){ route(); }; }
-      }
-      cuentaVerificar(result.user);
+  /* Lleva al usuario a donde iba antes del redirect: se recupera de
+     sessionStorage porque la recarga lo pudo haber perdido. */
+  function retomarDestino(){
+    var gid = null;
+    try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
+    if(gid){
+      verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
+      return;
     }
+    /* Puerta al arrancar: si venía con un enlace (tesorero/miembro,
+       pago-ok, etc.), retomarlo tras verificar. */
+    var vh = null;
+    try{ vh = sessionStorage.getItem('lacuota_verHash'); sessionStorage.removeItem('lacuota_verHash'); }catch(e){}
+    if(vh){ try{ if((location.hash||'')!==vh) location.hash = vh; }catch(e2){}
+      verNext = function(){ route(); }; }
+  }
+  function conUsuario(u){
+    var vv = document.getElementById('v-verify');
+    if(!vv || vv.hidden) showVerify();
+    retomarDestino();
+    cuentaVerificar(u);
+  }
+  FB_AUTH.redirectResult().then(function(result){
+    if(result && result.user){ conUsuario(result.user); return; }
+    /* El resultado del redirect se entrega UNA sola vez: si la página se
+       recargó después de volver de Google (actualización automática,
+       restauración de pestaña, refresco), ya viene vacío aunque la sesión
+       de Google siga viva en el teléfono. Antes eso dejaba al usuario
+       varado en la puerta después de haber entrado con Google; ahora se
+       completa con la sesión guardada. */
+    if(S.googleOk || !L.needsVerify(S)) return;
+    var u0 = null;
+    try{ u0 = FB_AUTH.user(); }catch(e){}
+    if(u0){ conUsuario(u0); return; }
+    if(!FB_AUTH.onUser) return;
+    /* La sesión puede tardar un momento en restaurarse: esperarla hasta
+       4 segundos antes de rendirse. */
+    var done=false, unsub=null;
+    function fin(){ if(done) return; done=true; try{ if(unsub) unsub(); }catch(e){} }
+    var to=setTimeout(function(){ fin(); }, 4000);
+    try{
+      unsub = FB_AUTH.onUser(function(u){
+        if(done) return; fin(); clearTimeout(to);
+        if(u) conUsuario(u);
+      });
+    }catch(e){ fin(); clearTimeout(to); }
   }).catch(function(){});
 }
 
@@ -1392,7 +1428,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 48;
+var APP_V = 49;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
