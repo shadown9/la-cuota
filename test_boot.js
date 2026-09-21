@@ -485,11 +485,18 @@ t('v-verify vende la app antes de pedir Google (qué es + beneficios)',
 t('banner de instalación existe en el inicio', /id="installBanner"/.test(indexHtml));
 t('app.js captura beforeinstallprompt para el botón Instalar', /beforeinstallprompt/.test(appJs));
 t('iPhone tiene instrucciones manuales de instalación', /Añadir a pantalla de inicio/.test(appJs));
-t('Firebase Auth se carga (compat, sin bloquear si no hay red)',
-  /firebase-app-compat\.js/.test(indexHtml) && /firebase-auth-compat\.js/.test(indexHtml));
-t('la verificación habla con el worker (/trial)', /\/trial/.test(appJs) && /TRIAL_URL/.test(appJs));
-t('si la clave no está puesta, lo dice claro en vez de fallar raro',
-  /indexOf\('CLAVE_'\)===0/.test(appJs));
+t('v63: index.html ya no carga Firebase Auth (el login es PKCE directo)',
+  !/firebase-app-compat/.test(indexHtml) && !/firebase-auth-compat/.test(indexHtml));
+t('v63: la verificación habla con el worker (/google/code)',
+  /\/google\/code/.test(appJs) && /function googleCodeUrl\(\)/.test(appJs));
+t('v63: el ID de cliente OAuth está fijo en el código',
+  /GOOGLE_OAUTH_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug/.test(appJs));
+t('v63: no queda código del login viejo (Firebase, redirects ni boletos)',
+  !/signInWithRedirect/.test(appJs) && !/signInWithPopup/.test(appJs) &&
+  !/getRedirectResult/.test(appJs) && !/canjearBoleto/.test(appJs) &&
+  !/devolverALaApp/.test(appJs) && !/boletoIntentUrl/.test(appJs) &&
+  !/leerTicketCompartido/.test(appJs) && !/cuentaVerificarRedirect/.test(appJs) &&
+  !/lacuota_ticket/.test(appJs) && !/redirectPending/.test(appJs));
 t('existe la puerta L.needsVerify', /L\.needsVerify = function/.test(
   fs.readFileSync(path.join(DIR,'logica.js'),'utf8')));
 t('el primer pago no arranca prueba sin verificar', /ensureTrial\(\)/.test(appJs));
@@ -535,1004 +542,314 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     a.__lacuotaSub.verificar();
     t('verificar(): muestra la pantalla v-verify',
       a.__els['v-verify'].hidden===false && a.__els['v-home'].hidden===true);
-    /* 15c: con la clave real puesta, el botón intenta verificar de verdad.
-       En el sandbox no hay Firebase ni red: mensaje claro, sin llamadas. */
-    var fetchCalls = 0;
-    a.fetch = function(){ fetchCalls++; return Promise.reject(new Error('no debe llamarse')); };
-    a.__els['verGoogle']._ev.click();
-    t('con clave real: intenta verificar (no dice "no activada") y no llama a la red',
-      fetchCalls===0 && a.__els['verMsg'].hidden===false &&
-      !/aún no está activada/.test(a.__els['verMsg'].textContent) &&
-      /conexión/.test(a.__els['verMsg'].textContent),
-      a.__els['verMsg'].textContent);
+    /* 15c (v63): el botón navega a Google con PKCE; el canje real se prueba
+       en 63a-63i. */
+    t('v63: el botón "Continuar con Google" existe y llama a googleLogin',
+      /on\('verGoogle', 'click', function\(\)\{\s*googleLogin\(\);/.test(appJs));
   }catch(e){ threw = e; }
   t('verificación: sin excepción', !threw, threw && threw.message);
-  /* 15d: al volver del redirect de Google, completa la verificación con el
-     usuario del redirect (currentUser puede no estar listo aún) y NO rebota
-     a Google otra vez. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    var signInCalls = 0, fetchCalls = [];
-    sb.__lacuotaSub.setAuth({
-      ready: function(){ return true; },
-      user: function(){ return null; }, /* el peligro: currentUser aún no listo */
-      signIn: function(){ signInCalls++; return Promise.resolve(null); },
-      redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOKEN123'); }}}); },
-      token: function(){ return Promise.resolve(null); }
-    });
-    sb.fetch = function(url, opts){
-      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:999, trialUsed:false}); } });
-    };
-    sb.__lacuotaSub.redir();
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('redirect: verifica y guarda la prueba', st.googleOk===true && st.trialStart===999, JSON.stringify(st));
-      t('redirect: llamó a /trial con el token del redirect',
-        fetchCalls.length===1 && /\/trial$/.test(fetchCalls[0].url) && /TOKEN123/.test(fetchCalls[0].body),
-        fetchCalls.length+' llamadas');
-      t('redirect: NO rebotó a Google (sin bucle)', signInCalls===0, signInCalls+' signIn');
-      resolve();
-    }, 60);
-  }));
-  /* 15e: reingreso con la prueba aún activa (worker nuevo): entra al
-     inicio sin ir al pago. Prueba vencida: va al pago. Worker viejo
-     (solo trialUsed, sin trialActive): se conserva el trato anterior. */
-  [['activa', {ok:true, trialUsed:true, trialStart:111, trialExpiresAt:222, trialActive:true, trialExpired:false}, 'v-home'],
-   ['vencida', {ok:true, trialUsed:true, trialStart:111, trialExpiresAt:222, trialActive:false, trialExpired:true}, 'v-pay'],
-   ['vieja', {ok:true, trialUsed:true, trialStart:111}, 'v-pay']
-  ].forEach(function(caso){
-    asyncTests.push(new Promise(function(resolve){
-      var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-      loadApp(sb);
-      sb.__lacuotaSub.setAuth({
-        ready: function(){ return true; },
-        user: function(){ return null; },
-        signIn: function(){ return Promise.resolve(null); },
-        redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('T'); }}}); },
-        token: function(){ return Promise.resolve(null); }
-      });
-      sb.fetch = function(){
-        return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(caso[1]); } });
-      };
-      sb.__lacuotaSub.redir();
-      setTimeout(function(){
-        var st = sb.__lacuotaSub.cuenta();
-        t('reingreso '+caso[0]+': verifica y guarda la prueba',
-          st.googleOk===true && st.trialStart===111, JSON.stringify(st));
-        t('reingreso '+caso[0]+': muestra '+caso[2],
-          (sb.__els[caso[2]]||{}).hidden===false,
-          'v-home.hidden='+((sb.__els['v-home']||{}).hidden)+' v-pay.hidden='+((sb.__els['v-pay']||{}).hidden));
-        resolve();
-      }, 60);
-    }));
-  });
-  /* 15f: la puerta sale AL ARRANCAR para usuarios antiguos con prueba
-     local pero sin verificar (v44): ven v-verify en vez del inicio. */
-  (function(){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, trialStart: 123})});
-    loadApp(sb);
-    t('arranque sin verificar: muestra v-verify',
-      sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
-    t('arranque sin verificar: no muestra el inicio',
-      sb.__els['v-home'].hidden===true, 'v-home.hidden='+sb.__els['v-home'].hidden);
-  })();
-  /* 15g: con la cuenta verificada, el arranque entra directo (sin puerta). */
-  (function(){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, trialStart: 123, googleOk:true})});
-    loadApp(sb);
-    t('arranque verificado: no muestra v-verify',
-      sb.__els['v-verify'].hidden===true, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
-    t('arranque verificado: muestra el inicio',
-      sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-  })();
-  /* 15h: si venía con un enlace, la puerta lo guarda para retomarlo tras
-     verificar (sobrevive al redirect porque va en sessionStorage). */
-  (function(){
-    var sb = psb({ids: idsFromHtml(indexHtml), hash:'#/g/g1',
-      seed: seed({groups:{g1:{id:'g1',name:'G1'}}})});
-    loadApp(sb);
-    t('puerta al arrancar: guarda el enlace pendiente',
-      sb.sessionStorage.getItem('lacuota_verHash')==='#/g/g1',
-      String(sb.sessionStorage.getItem('lacuota_verHash')));
-    var sb2 = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1'}}})});
-    loadApp(sb2);
-    t('puerta al arrancar sin enlace: no guarda nada pendiente',
-      sb2.sessionStorage.getItem('lacuota_verHash')===null);
-  })();
-  /* 15k (v49): el redirect de Google se entrega UNA vez. Si la página se
-     recargó después (actualización automática, pestaña restaurada), el
-     resultado viene vacío aunque la sesión siga viva: la app completa la
-     verificación con la sesión guardada en vez de varar al usuario. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
-    loadApp(sb);
-    var fetchCalls = [];
-    sb.__lacuotaSub.setAuth({
-      ready: function(){ return true; },
-      /* redirect ya consumido: no trae usuario... */
-      redirectResult: function(){ return Promise.resolve(null); },
-      /* ...pero la sesión de Google sigue viva en el teléfono */
-      user: function(){ return {getIdToken:function(){ return Promise.resolve('TOKEN_SESION'); }}; },
-      onUser: function(cb){ return function(){}; },
-      signIn: function(){ return Promise.resolve(null); },
-      token: function(){ return Promise.resolve(null); }
-    });
-    sb.fetch = function(url, opts){
-      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:777, trialUsed:false}); } });
-    };
-    sb.__lacuotaSub.redir();
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('redirect consumido + sesión viva: verifica con la sesión guardada',
-        st.googleOk===true && st.trialStart===777, JSON.stringify(st));
-      t('redirect consumido + sesión viva: llamó a /trial con el token de la sesión',
-        fetchCalls.length===1 && /TOKEN_SESION/.test(fetchCalls[0].body),
-        fetchCalls.length+' llamadas');
-      t('redirect consumido + sesión viva: entra al inicio',
-        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      resolve();
-    }, 60);
-  }));
-  /* 15l (v62): volviendo de Google sin sesión en esta ventana: NO se
-     muestra ningún error (en la app instalada el redirect se completa en
-     el navegador del sistema y esa pestaña deja el boleto en el
-     almacenamiento compartido). La puerta dice "Entrando…" mientras
-     espera el boleto o la sesión; si la sesión ya está en este teléfono,
-     se entra directo con ella. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
-    sb.fetch = function(){
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:9999, trialUsed:false, trialActive:true, trialExpired:false}); } });
-    };
-    loadApp(sb);
-    var onUserCb = null;
-    sb.__lacuotaSub.setAuth({
-      ready: function(){ return true; },
-      redirectResult: function(){ return Promise.resolve(null); },
-      user: function(){ return null; },
-      onUser: function(cb){ onUserCb = cb; return function(){}; },
-      signIn: function(){ return Promise.resolve(null); },
-      token: function(){ return Promise.resolve(null); }
-    });
-    sb.__lacuotaSub.redir();
-    setTimeout(function(){
-      var msgEl = sb.__els['verMsg'];
-      t('volviendo de Google: no muestra ningún mensaje de fallo',
-        msgEl.hidden===true,
-        'verMsg.hidden='+msgEl.hidden+' texto='+msgEl.textContent);
-      t('volviendo de Google: indica el paso sin quedarse clavado en "verificando"',
-        sb.__els['verStep'].hidden===false && /Entrando/.test(sb.__els['verStep'].textContent),
-        sb.__els['verStep'].textContent);
-      t('volviendo de Google: el botón queda deshabilitado mientras se espera',
-        sb.__els['verGoogle'].disabled===true, String(sb.__els['verGoogle'].disabled));
-      t('volviendo de Google: la marca pendiente se consume',
-        (function(){ try{ return JSON.parse(sb.localStorage.getItem('lacuota_v1')||'{}').redirectPending!==true; }catch(e){ return false; } })(),
-        String(sb.localStorage.getItem('lacuota_v1')));
-      t('volviendo de Google: el rescate escucha la sesión del teléfono',
-        typeof onUserCb==='function', typeof onUserCb);
-      /* Si la sesión ya está en este teléfono, se entra directo con ella. */
-      onUserCb({getIdToken:function(){ return Promise.resolve('TOK_RESCATE'); }});
-      setTimeout(function(){
-        var st = sb.__lacuotaSub.cuenta();
-        t('rescate con sesión en el teléfono: entra a la página de grupos',
-          st.googleOk===true && sb.__els['v-home'].hidden===false && sb.__els['v-verify'].hidden===true,
-          'googleOk='+st.googleOk+' v-home.hidden='+sb.__els['v-home'].hidden);
-        resolve();
-      }, 120);
-    }, 60);
-  }));
-  /* 15m (v51): el inicio con Google usa popup (todo queda en la misma
-     página, la sesión no se pierde) y verifica con el token del usuario
-     que trae el popup. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    var fetchCalls = [];
-    sb.__lacuotaSub.setAuth({
-      ready: function(){ return true; },
-      redirectResult: function(){ return Promise.resolve(null); },
-      user: function(){ return null; },
-      onUser: function(cb){ return function(){}; },
-      /* el popup devuelve la credencial con el usuario en la misma página */
-      signIn: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_POPUP'); }}}); },
-      token: function(){ return Promise.resolve(null); }
-    });
-    sb.fetch = function(url, opts){
-      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:555, trialUsed:false}); } });
-    };
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('popup: verifica con el token del usuario del popup',
-        st.googleOk===true && st.trialStart===555, JSON.stringify(st));
-      t('popup: llamó a /trial con el token del popup',
-        fetchCalls.length===1 && /TOK_POPUP/.test(fetchCalls[0].body), fetchCalls.length+' llamadas');
-      t('popup: entra al inicio',
-        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      resolve();
-    }, 60);
-  }));
-  /* 15n (v51): si el navegador bloquea el popup, el inicio REAL cae al
-     redirect como respaldo en vez de varar al usuario. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    /* Aquí NO se reemplaza FB_AUTH: se prueba el real con Firebase simulado */
-    var redirectCalls = 0;
-    function FakeProvider(){ this.addScope = function(){}; }
-    sb.firebase = {
-      apps: [],
-      initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
-          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      t('popup bloqueado: usa redirect como respaldo', redirectCalls===1, redirectCalls+' llamadas');
-      resolve();
-    }, 60);
-  }));
-  /* v58 (estático): se eliminó la ventanita nativa de Google (FedCM). Google
-     rechaza lacuota.org como origen del cliente OAuth (INVALID_ORIGIN en su
-     endpoint de FedCM), así que la ventanita jamás devolvía credencial. El
-     inicio ahora es 100% Firebase Auth: redirect en la instalada, popup en
-     el navegador. */
-  t('v58: index.html ya no carga la librería gsi de Google',
-    !/accounts\.google\.com\/gsi\/client/.test(indexHtml));
-  t('v58: no queda rastro de FedCM crudo en el código',
-    !/fedcmToken/.test(appJs) && !/google\.accounts\.id/.test(appJs)
-    && !/GOOGLE_CLIENT_ID/.test(appJs) && !/FEDCM_ESPERA/.test(appJs));
-  t('v58: en la instalada se navega a Google con redirect (el popup abría una pestaña del sistema)',
-    /function viaRedirect\(desdeInstalada\)/.test(appJs) && /if\(esInstalada\(\)\) return viaRedirect\(true\);/.test(appJs));
-  t('v58: en el navegador se usa el popup, y si lo bloquean cae al redirect',
-    /signInWithPopup\(p\)\.catch/.test(appJs) && /auth\/popup-blocked/.test(appJs));
-  t('v58: Google siempre muestra el selector de cuenta (no entra solo)',
-    /setCustomParameters\(\{prompt:'select_account'\}\)/.test(appJs));
-  t('v-verify muestra la versión en letra pequeña (verVer)',
-    /id="verVer"/.test(indexHtml) && /getElementById\('verVer'\)/.test(appJs));
-  t('v54: el inicio tiene "Cerrar sesión" junto a las demás opciones (homeSignOut)',
-    /id="homeSignOut"/.test(indexHtml) && /on\('homeSignOut', 'click', cerrarSesion\)/.test(appJs)
-    && !/id="setSignOut"/.test(indexHtml));
-  t('v54: Ajustes ya no tiene "Cerrar sesión" (no es por grupo)',
-    !/setSignOut/.test(appJs));
-  t('v55: cerrar sesión marca expectNoSession y verifica que la sesión murió',
-    /S\.expectNoSession = true/.test(appJs) && /noSePudo\('signout-zombie'\)/.test(appJs));
-  t('v55: tras cerrar sesión, continuar siempre pasa por Google (no reutiliza la vieja)',
-    /if\(S\.expectNoSession\) return freshSignIn\(\);/.test(appJs));
-  t('v55: el arranque no entra solo con la sesión vieja si se pidió salir',
-    /if\(S\.expectNoSession\)\{ verStep\(null\); return; \}/.test(appJs));
-  t('v55: al verificar se limpia la marca de cierre',
-    /S\.expectNoSession = false;/.test(appJs));
-  t('v55/v58: al cerrar sesión se apaga el auto-entrar de Google (selector forzado)',
-    /setCustomParameters\(\{prompt:'select_account'\}\)/.test(appJs));
-  t('v56: el redirect a Google deja marca pendiente para rescatar al volver',
-    /S\.redirectPending = true;/.test(appJs));
-  t('v56: al arrancar normal (sin volver de Google) no se persigue ninguna sesión',
-    /if\(!veniaDeGoogle\)\{ verStep\(null\); return; \}/.test(appJs));
-  t('v56: si se cierra la ventanita de Google no se muestra ningún aviso',
-    !/Se canceló el inicio de sesión/.test(appJs));
-  t('v56: la puerta jamás muestra alarmas en rojo',
-    !/#verMsg\{color:#b00020/.test(cssTxt));
-  /* v58 (estático): sin ventanita nativa ya no hay esperas de FedCM ni vía
-     del navegador. Se conserva el aviso "Vuelve a la app" por si el
-     redirect aterriza en el navegador en algún teléfono. */
-  t('v58: se eliminó la vía del navegador (ya no hace falta)',
-    !/mostrarViaNavegador/.test(appJs) && !/id="verAlt"/.test(indexHtml));
-  t('v58: cerrar el popup de Google no muestra ningún aviso',
-    /auth\/popup-closed-by-user/.test(appJs) && !/Se canceló el inicio de sesión/.test(appJs));
-  t('v58: al volver a la app tras verificar en el navegador se entra directo',
-    /reanudarSiVerificado\(\)/.test(appJs));
-  t('v58: el arranque consume el marcador #entrar-app',
-    /lacuota_desdeApp/.test(appJs));
-  t('v58: tras verificar desde el navegador se avisa que vuelva a la app',
-    /Vuelve a la app de La Cuota/.test(appJs));
-  /* v59 (estático): al verificar desde un grupo se vuelve al grupo, no a la
-     página inicial. El destino se guarda al mostrar la puerta y se consume
-     al verificar. */
-  t('v59: la puerta recuerda el grupo abierto para volver tras verificar',
-    /sessionStorage\.setItem\('lacuota_verGid', curGid\)/.test(appJs));
-  t('v59: al verificar sin destino en memoria se recupera el grupo guardado',
-    /sessionStorage\.getItem\('lacuota_verGid'\)/.test(appJs) &&
-    /next = \(function\(id\)\{ return function\(\)\{ openGroup\(id\); \}; \}\)\(_g\)/.test(appJs));
-  /* v61 (estático): regreso automático a la app instalada con boleto de un
-     solo uso. La pestaña del sistema reabre la app SOLA con un intent://;
-     la app canjea el boleto y cae directo en los grupos. Sin pantallas de
-     "vuelve a la app". */
-  t('v61: el redirect de la instalada marca redirectFromApp (no en pestaña)',
-    /viaRedirect\(true\)/.test(appJs) && /viaRedirect\(false\)/.test(appJs) &&
-    /S\.redirectFromApp = !!desdeInstalada;/.test(appJs));
-  t('v62: sin vigilancia vieja de sesión, pero el boleto sí viaja por almacenamiento compartido',
-    !/vigilarVueltaDeGoogle/.test(appJs) && !/sondeoVuelta/.test(appJs) &&
-    !/mostrarGateVolverApp/.test(appJs) && !/function leerCompartido\(\)/.test(appJs) &&
-    /function leerTicketCompartido\(\)/.test(appJs) &&
-    /addEventListener\('storage'/.test(appJs) &&
-    /lacuota_ticket/.test(appJs));
-  t('v61: la pestaña del sistema pide el boleto y reabre la app con intent://',
-    /function devolverALaApp\(idToken\)/.test(appJs) &&
-    /fetch\(TICKET_URL/.test(appJs) && /intent:\/\//.test(appJs) &&
-    /#Intent;scheme=https/.test(appJs));
-  t('v61: el boleto se canjea al arrancar (?t=...) y se cae en los grupos',
-    /function canjearBoleto\(ticket\)/.test(appJs) &&
-    /fetch\(TICKET_REDEEM_URL/.test(appJs) && /leerBoletoUrl\(\)/.test(appJs));
-  t('v61: jamás se muestra "no devolvió la sesión" (ni errores en el tránsito)',
-    !/no devolvió la sesión/.test(appJs) && !/sin-sesion/.test(appJs));
-  t('v61: no existe pantalla de "vuelve a la app"',
+  /* ============ v63: entrada con Google por PKCE directo ============
+     Sin Firebase Auth, sin redirects de Firebase, sin boletos. El botón
+     navega a Google con un reto PKCE; Google devuelve ?code=...&state=...
+     en la dirección de la app; la app lo canjea con el servidor y cae
+     directo en los grupos. */
+
+  /* v63 (estático): el flujo PKCE está completo en el código. */
+  t('v63: el botón navega a Google con PKCE (reto SHA-256, state, selector de cuenta)',
+    /accounts\.google\.com\/o\/oauth2\/v2\/auth/.test(appJs) &&
+    /code_challenge/.test(appJs) && /code_challenge_method=S256/.test(appJs) &&
+    /prompt=select_account/.test(appJs) && /function pkceChallenge\(verifier\)/.test(appJs));
+  t('v63: el arranque lee ?code= de la dirección y lo limpia de la barra',
+    /\[?&\]code=/.test(appJs) && /lacuota_code/.test(appJs) &&
+    /history\.replaceState/.test(appJs));
+  t('v63: el código se canjea con el servidor y la sesión cae en los grupos',
+    /function canjearCodigo\(code, state\)/.test(appJs) &&
+    /function aplicarSesionGoogle\(res\)/.test(appJs) &&
+    /\/google\/code/.test(appJs));
+  t('v63: la dirección de regreso coincide exacta con la registrada en Google',
+    /https:\/\/lacuota\.org\//.test(appJs) && /https:\/\/shadown9\.github\.io\/la-cuota\//.test(appJs));
+  t('v63: "Volviendo de Google" y "Vuelve a la app" no existen en ningún texto',
+    !/Volviendo de Google/.test(appJs) && !/Volviendo de Google/.test(indexHtml) &&
     !/Listo\. Vuelve a la app/.test(appJs) && !/Listo\. Vuelve a la app/.test(indexHtml));
-  t('v61: tocar el botón en la pestaña es seguir ahí (apaga el regreso)',
-    /if\(!esInstalada\(\)\) gateVolverApp = false;/.test(appJs));
-  t('v61: al arrancar verificado con grupo pendiente se abre el grupo',
-    /getItem\('lacuota_verGid'\)[\s\S]{0,1200}openGroup\(_rg\)/.test(appJs));
-  /* v62: el flujo jamás opera con código viejo ni muestra textos del
-     diseño anterior. */
-  t('v62: "Volviendo de Google" no existe en ningún texto visible',
-    !/Volviendo de Google/.test(appJs) && !/Volviendo de Google/.test(indexHtml));
-  t('v62: el arranque verifica la versión antes de dejar operar',
-    /function actualizarAntesDeEntrar\(boleto\)/.test(appJs) &&
-    /actualizarAntesDeEntrar\(_boleto0\)/.test(appJs) &&
-    /verStep\('Actualizando…'\);/.test(appJs));
-  t('v62: con boleto en mano no corre el rescate del redirect',
-    /if\(!boleto\) cuentaVerificarRedirect\(\);/.test(appJs));
-  t('v62: la pestaña reintenta el boleto antes de rendirse',
-    /if\(intentos < 3\)/.test(appJs) && /setTimeout\(pedirBoleto, 1500\)/.test(appJs));
-  t('v62: el boleto viaja por almacenamiento compartido antes del intent',
-    /setItem\('lacuota_ticket'/.test(appJs) &&
-    /function leerTicketCompartido\(\)/.test(appJs));
-  t('v62: el rescate espera el boleto compartido además de la sesión',
-    /pollBoleto/.test(appJs) && /leerTicketCompartido\(\);/.test(appJs) &&
-    /verStep\('Entrando…'\)/.test(appJs));
-    /* 15o (v58): en la app instalada, tocar "Continuar con Google" navega a
-     Google con redirect (el popup abriría una pestaña del sistema que nunca
-     devuelve la sesión) y deja la marca para rescatar al volver. */
+  t('v63: la puerta jamás muestra alarmas en rojo',
+    !/#verMsg\{color:#b00020/.test(cssTxt));
+  /* 63a: el botón lleva a Google con PKCE válido (reto = SHA-256 del
+     secreto guardado). */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    sb.crypto = require('crypto').webcrypto; sb.TextEncoder = TextEncoder;
+    sb.btoa = function(s){ return Buffer.from(s, 'binary').toString('base64'); };
     loadApp(sb);
-    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
-    var popupCalls = 0, redirectCalls = 0, customParams = null;
-    function FakeProvider(){
-      this.addScope = function(){};
-      this.setCustomParameters = function(p){ customParams = p; };
-    }
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-blocked'}); },
-          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
-          getRedirectResult: function(){ return Promise.resolve(null); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
     sb.__lacuotaSub.verificar();
     sb.__els['verGoogle']._ev.click();
     setTimeout(function(){
-      var guardado = {};
-      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
-      t('instalada: navega a Google con redirect (ni intenta el popup)',
-        redirectCalls===1 && popupCalls===0, 'redirect='+redirectCalls+' popup='+popupCalls);
-      t('instalada: deja la marca para rescatar la sesión al volver',
-        guardado.redirectPending===true, JSON.stringify({redirectPending:guardado.redirectPending}));
-      t('instalada: Google siempre muestra el selector de cuenta',
-        customParams && customParams.prompt==='select_account', JSON.stringify(customParams));
-      resolve();
-    }, 60);
-  }));
-  /* 15o2 (v58): al volver del redirect, la app completa la verificación con
-     el usuario que trae Google y entra al inicio. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
-    var fetchCalls = [];
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          getRedirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_REDIRECT'); }}}); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
+      var href = String(sb.location.href || '');
+      var pkce = null;
+      try{ pkce = JSON.parse(sb.localStorage.getItem('lacuota_pkce') || 'null'); }catch(e){}
+      var m = /code_challenge=([^&]+)/.exec(href);
+      var esperado = null;
+      if(pkce && pkce.v){
+        esperado = require('crypto').createHash('sha256').update(pkce.v)
+          .digest('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
       }
-    };
+      t('63a: el botón navega a Google (no a Firebase)',
+        href.indexOf('https://accounts.google.com/o/oauth2/v2/auth')===0, href.slice(0,60));
+      t('63a: la URL lleva el cliente OAuth de la-cuota',
+        href.indexOf('client_id=741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug')>0, '');
+      t('63a: la URL pide el regreso a lacuota.org',
+        href.indexOf('redirect_uri='+encodeURIComponent('https://lacuota.org/'))>0, '');
+      t('63a: el reto es el SHA-256 del secreto guardado (PKCE real)',
+        !!(m && esperado && m[1]===esperado), 'challenge='+String(m&&m[1]).slice(0,20));
+      t('63a: el state de la URL es el guardado al tocar el botón',
+        !!(pkce && pkce.s && href.indexOf('state='+pkce.s)>0), '');
+      t('63a: Google muestra el selector de cuenta',
+        href.indexOf('prompt=select_account')>0, '');
+      resolve();
+    }, 80);
+  }));
+  /* 63b: canje exitoso -> sesión verificada, directo a los grupos. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    var V = new Array(87).join('v'), ST = new Array(21).join('st');
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:V, s:ST, ts:Date.now()}));
+    var bodies = [];
     sb.fetch = function(url, opts){
-      fetchCalls.push({url:String(url), body:String(opts && opts.body || '')});
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:999, trialUsed:false}); } });
+      var u = String(url);
+      if(u.indexOf('/google/code')>=0)
+        bodies.push({url:u, body:String(opts && opts.body || '')});
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
+        {ok:true, sub:'u1', trialStart:999, trialUsed:false, trialActive:true, trialExpired:false}); } });
     };
-    loadApp(sb); /* el arranque rescata el redirect pendiente */
+    loadApp(sb);
+    sb.__lacuotaSub.canjearCodigo('CODIGO1234567890', ST);
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
-      var trialCalls = fetchCalls.filter(function(c){ return /\/trial/.test(c.url); });
-      var guardado = {};
-      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
-      t('volviendo del redirect: verifica con el token del usuario real',
+      var b = {};
+      try{ b = JSON.parse(bodies[0].body); }catch(e){}
+      t('63b: el código se canjea contra /google/code del worker',
+        bodies.length===1 && /\/google\/code$/.test(bodies[0].url),
+        bodies.map(function(x){return x.url;}).join(','));
+      t('63b: se envía el secreto PKCE, el código y la dirección de regreso',
+        b.verifier===V && b.code==='CODIGO1234567890' && b.redirectUri==='https://lacuota.org/',
+        JSON.stringify(b).slice(0,120));
+      t('63b: guarda la sesión verificada con la fecha del servidor',
         st.googleOk===true && st.trialStart===999, JSON.stringify(st));
-      t('volviendo del redirect: llamó a /trial con el token de Firebase',
-        trialCalls.length===1 && /TOK_REDIRECT/.test(trialCalls[0].body),
-        trialCalls.length+' llamadas a /trial');
-      t('volviendo del redirect: entra al inicio',
+      t('63b: cae directo en la página de grupos',
         sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      t('volviendo del redirect: la marca pendiente se consume',
-        guardado.redirectPending!==true, 'redirectPending='+guardado.redirectPending);
+      t('63b: el secreto PKCE se borra tras el canje (un solo uso)',
+        sb.localStorage.getItem('lacuota_pkce')===null, String(sb.localStorage.getItem('lacuota_pkce')));
       resolve();
     }, 80);
   }));
-  /* 15p (v58): en el navegador (pestaña), el inicio usa el popup clásico:
-     todo queda en la misma página y se verifica con el token del usuario
-     que trae el popup. */
+  /* 63c: código que no es de esta ventana (state distinto) -> puerta, sin red. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:new Array(87).join('v'), s:'OTRO-STATE-1234567890', ts:Date.now()}));
+    var calls = 0;
+    sb.fetch = function(url){ if(String(url).indexOf('/google/code')>=0) calls++; return Promise.reject(new Error('no debe llamarse')); };
     loadApp(sb);
-    /* pestaña: sin matchMedia de instalada */
-    var popupCalls = 0, redirectCalls = 0;
-    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ popupCalls++; return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_POPUP3'); }}}); },
-          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
-          getRedirectResult: function(){ return Promise.resolve(null); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.fetch = function(){
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:333, trialUsed:false}); } });
-    };
     sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
+    sb.__lacuotaSub.canjearCodigo('CODIGO1234567890', 'STATE-DISTINTO-1234567890');
     setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('pestaña: usa el popup en la misma página',
-        popupCalls===1 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
-      t('pestaña: verifica con el token del popup',
-        st.googleOk===true && st.trialStart===333, JSON.stringify(st));
-      t('pestaña: entra al inicio',
-        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      resolve();
-    }, 60);
-  }));
-  /* 15q (v58): si el usuario cierra el popup de Google, no se muestra ningún
-     mensaje: cerrar el popup no es un error. La puerta queda lista, en
-     silencio, y no se cae al redirect. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    var popupCalls = 0, redirectCalls = 0;
-    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-closed-by-user'}); },
-          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
-          getRedirectResult: function(){ return Promise.resolve(null); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      t('popup cerrado: no se muestra ningún mensaje',
-        sb.__els['verMsg'].hidden===true,
-        'verMsg.hidden='+sb.__els['verMsg'].hidden+' texto='+sb.__els['verMsg'].textContent);
-      t('popup cerrado: no cae al redirect', redirectCalls===0, redirectCalls+' llamadas');
-      t('popup cerrado: el botón queda habilitado',
-        sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
-      t('popup cerrado: sigue sin verificar',
-        sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
-      resolve();
-    }, 60);
-  }));
-  /* 15z (v59): la puerta abierta desde un grupo vuelve al grupo tras
-     verificar, no a la página inicial. El destino se guarda al mostrar la
-     puerta (sobrevive al redirect porque va en sessionStorage) y se consume
-     al verificar. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_G1'); }}}); },
-          signInWithRedirect: function(){ return Promise.resolve(); },
-          getRedirectResult: function(){ return Promise.resolve(null); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.fetch = function(){
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:777, trialUsed:false}); } });
-    };
-    sb.__lacuotaSub.enlace('#/g/g1'); /* entra al grupo */
-    sb.__lacuotaSub.verificar(); /* puerta sin destino (p. ej. al anotar un pago) */
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('puerta desde el grupo: verifica con el token del popup',
-        st.googleOk===true && st.trialStart===777, JSON.stringify(st));
-      t('puerta desde el grupo: vuelve al grupo, no a la página inicial',
-        sb.__els['v-group'].hidden===false && sb.__els['v-home'].hidden===true,
-        'v-group.hidden='+sb.__els['v-group'].hidden+' v-home.hidden='+sb.__els['v-home'].hidden);
-      t('puerta desde el grupo: la marca de destino se consume',
-        sb.sessionStorage.getItem('lacuota_verGid')===null,
-        String(sb.sessionStorage.getItem('lacuota_verGid')));
-      resolve();
-    }, 60);
-  }));
-  /* 15aa (v60): en la app instalada, el redirect deja la marca
-     redirectFromApp (el redirect lo inició la app, no una pestaña). */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
-    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
-          signInWithRedirect: function(){ return Promise.resolve(); },
-          getRedirectResult: function(){ return Promise.resolve(null); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      var guardado = {};
-      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
-      t('instalada: el redirect marca que lo inició la app (redirectFromApp)',
-        guardado.redirectFromApp===true, JSON.stringify({redirectFromApp:guardado.redirectFromApp}));
-      resolve();
-    }, 60);
-  }));
-  /* 15ab (v60): en la pestaña del navegador, si el popup está bloqueado y se
-     cae al redirect, NO se marca redirectFromApp (no lo inició la app). */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    /* pestaña: sin matchMedia de instalada */
-    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
-    sb.firebase = {
-      apps: [], initializeApp: function(){},
-      auth: function(){
-        return {
-          currentUser: null,
-          signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
-          signInWithRedirect: function(){ return Promise.resolve(); },
-          getRedirectResult: function(){ return Promise.resolve(null); },
-          onAuthStateChanged: function(){ return function(){}; }
-        };
-      }
-    };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      var guardado = {};
-      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
-      t('pestaña con popup bloqueado: cae al redirect sin marcar redirectFromApp',
-        guardado.redirectPending===true && guardado.redirectFromApp!==true,
-        JSON.stringify({redirectPending:guardado.redirectPending, redirectFromApp:guardado.redirectFromApp}));
-      resolve();
-    }, 60);
-  }));
-  /* 15ac (v61): la pestaña del sistema que completa un redirect iniciado por
-     la app instalada NO muestra "vuelve a la app": pide un boleto de un solo
-     uso al servidor y reabre la app instalada SOLA con un intent://. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true, redirectFromApp:true})});
-    var fetchBodies = {};
-    sb.fetch = function(url, opts){
-      var u = String(url);
-      var key = u.indexOf('/ticket')>=0 ? 'ticket' : 'trial';
-      fetchBodies[key] = opts && opts.body;
-      var resp = {ok:true, trialStart:4242, trialUsed:false, trialActive:true, trialExpired:false};
-      if(key==='ticket') resp = {ok:true, ticket:'aa11bb22cc33dd44ee55ff66001122334455667788990011'};
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(resp); } });
-    };
-    sb.location.origin = 'https://lacuota.org';
-    sb.location.pathname = '/';
-    loadApp(sb); /* pestaña: sin matchMedia de instalada */
-    sb.__lacuotaSub.setAuth({
-      ready: function(){ return true; },
-      redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_GATE'); }}}); },
-      user: function(){ return null; },
-      onUser: function(cb){ return function(){}; },
-      signIn: function(){ return Promise.resolve(null); },
-      token: function(){ return Promise.resolve(null); }
-    });
-    sb.__lacuotaSub.redir();
-    /* En el HTML real verHecho nace oculto; en el sandbox se modela así para
-       comprobar que el código no lo muestra. */
-    sb.document.getElementById('verHecho').hidden = true;
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      var guardado = {};
-      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
-      t('pestaña del sistema: verifica la cuenta contra el servidor',
-        st.googleOk===true && st.trialStart===4242, JSON.stringify(st));
-      t('pestaña del sistema: pide el boleto con el token de Google',
-        !!fetchBodies.ticket && fetchBodies.ticket.indexOf('TOK_GATE')>=0,
-        String(fetchBodies.ticket).slice(0,60));
-      t('pestaña del sistema: reabre la app instalada sola con el boleto (intent://)',
-        sb.location.href.indexOf('intent://lacuota.org/?t=aa11bb22')===0 && sb.location.href.indexOf('#Intent')>0,
-        String(sb.location.href).slice(0,80));
-      t('pestaña del sistema: no entra al inicio en esta pestaña',
-        sb.__els['v-home'].hidden===true, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      t('pestaña del sistema: no muestra "vuelve a la app"',
-        sb.document.getElementById('verHecho').hidden===true, 'verHecho.hidden='+sb.document.getElementById('verHecho').hidden);
-      t('pestaña del sistema: la marca redirectFromApp se consume',
-        guardado.redirectFromApp!==true, 'redirectFromApp='+guardado.redirectFromApp);
-      resolve();
-    }, 80);
-  }));
-  /* 15ad (v61): la app reabierta con el boleto (?t=...) lo canjea con el
-     servidor y cae DIRECTO en la página de grupos, sin mostrar la puerta. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    var fetchBodies = {};
-    sb.fetch = function(url, opts){
-      var u = String(url);
-      var key = u.indexOf('/ticket/redeem')>=0 ? 'redeem' : 'otro';
-      fetchBodies[key] = opts && opts.body;
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
-        {ok:true, sub:'sub-1', trialStart:7777, trialUsed:false, trialActive:true, trialExpired:false}); } });
-    };
-    loadApp(sb);
-    sb.__lacuotaSub.canjear('boleto1234567890abcdef');
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('canje del boleto: guarda la sesión verificada',
-        st.googleOk===true && st.trialStart===7777, JSON.stringify(st));
-      t('canje del boleto: lo envía al servidor (un solo uso)',
-        !!fetchBodies.redeem && fetchBodies.redeem.indexOf('boleto1234567890abcdef')>=0,
-        String(fetchBodies.redeem).slice(0,60));
-      t('canje del boleto: cae directo en la página de grupos',
-        sb.__els['v-home'].hidden===false && sb.__els['v-verify'].hidden===true,
-        'v-home.hidden='+sb.__els['v-home'].hidden+' v-verify.hidden='+sb.__els['v-verify'].hidden);
-      resolve();
-    }, 80);
-  }));
-  /* 15af (v61): la URL del boleto solo se arma en https (nunca en http). */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
-    sb.location.origin = 'https://lacuota.org';
-    sb.location.pathname = '/';
-    loadApp(sb);
-    var iu = sb.__lacuotaSub.intentBoleto('abc123XYZ789');
-    t('intent del boleto: abre la app instalada con ?t=',
-      iu === 'intent://lacuota.org/?t=abc123XYZ789#Intent;scheme=https;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end',
-      String(iu));
-    sb.location.origin = 'http://lacuota.org';
-    t('intent del boleto: no se arma en http', sb.__lacuotaSub.intentBoleto('abc123XYZ789')===null,
-      String(sb.__lacuotaSub.intentBoleto('abc123XYZ789')));
-    resolve();
-  }));
-  /* 15ah (v61): arranque con boleto en la URL (?t=...): la puerta de entrada
-     NO se muestra; se canjea y se entra directo a los grupos. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    sb.location.search = '?t=boleto1234567890abcdef';
-    sb.fetch = function(){
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
-        {ok:true, sub:'sub-9', trialStart:5151, trialUsed:true, trialActive:true, trialExpired:false}); } });
-    };
-    loadApp(sb);
-    setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('arranque con boleto: la sesión queda verificada',
-        st.googleOk===true && st.trialStart===5151, JSON.stringify(st));
-      t('arranque con boleto: nunca se muestra la puerta de entrada',
-        sb.__els['v-verify'].hidden===true && sb.__els['verGoogle'].hidden===true,
+      t('63c: código ajeno no se canjea (cero llamadas de red)',
+        calls===0, calls+' llamadas');
+      t('63c: la puerta queda lista y silenciosa',
+        sb.__els['v-verify'].hidden===false && sb.__els['verMsg'].hidden===true,
         'v-verify.hidden='+sb.__els['v-verify'].hidden);
-      t('arranque con boleto: cae directo en la página de grupos',
-        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      t('arranque con boleto: no vuelve a pedir Google después',
-        sb.__lacuotaSub.necesitaVerificar()===false, String(sb.__lacuotaSub.necesitaVerificar()));
-      resolve();
-    }, 80);
-  }));
-  /* 15ae (v60): al arrancar ya verificado (tras la recarga de la vigilancia),
-     si quedó un grupo pendiente de la puerta se abre el grupo, no el inicio. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, googleOk:true, trialStart:5151})});
-    sb.sessionStorage.setItem('lacuota_verGid', 'g1');
-    loadApp(sb);
-    setTimeout(function(){
-      t('arranque verificado con grupo pendiente: abre el grupo',
-        sb.__els['v-group'].hidden===false && sb.__els['v-home'].hidden===true,
-        'v-group.hidden='+sb.__els['v-group'].hidden+' v-home.hidden='+sb.__els['v-home'].hidden);
-      t('arranque verificado con grupo pendiente: la marca se consume',
-        sb.sessionStorage.getItem('lacuota_verGid')===null,
-        String(sb.sessionStorage.getItem('lacuota_verGid')));
       resolve();
     }, 60);
   }));
-  /* v62: la pestaña del sistema deja el boleto en el almacenamiento
-     compartido ANTES del intent:// (la ventana de la app abierta espera
-     y lo canjea sola, sin depender del salto automático). */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true, redirectFromApp:true})});
-    sb.fetch = function(url){
-      var u = String(url);
-      var resp = {ok:true, trialStart:4242, trialUsed:false, trialActive:true, trialExpired:false};
-      if(u.indexOf('/ticket')>=0) resp = {ok:true, ticket:'bb11bb22cc33dd44ee55ff66001122334455667788990022'};
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(resp); } });
-    };
-    sb.location.origin = 'https://lacuota.org';
-    sb.location.pathname = '/';
-    loadApp(sb);
-    sb.__lacuotaSub.setAuth({
-      ready: function(){ return true; },
-      redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_X'); }}}); },
-      user: function(){ return null; },
-      onUser: function(cb){ return function(){}; },
-      signIn: function(){ return Promise.resolve(null); },
-      token: function(){ return Promise.resolve(null); }
-    });
-    sb.__lacuotaSub.redir();
-    setTimeout(function(){
-      var guardado = null;
-      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_ticket') || 'null'); }catch(e){}
-      t('pestaña v62: deja el boleto en el almacenamiento compartido',
-        !!guardado && guardado.t === 'bb11bb22cc33dd44ee55ff66001122334455667788990022',
-        String(sb.localStorage.getItem('lacuota_ticket')).slice(0,70));
-      resolve();
-    }, 80);
-  }));
-  /* v62: si /ticket falla, la pestaña reintenta sola (el servidor puede
-     estar propagando) antes de rendirse. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
-    var timers = [];
-    sb.setTimeout = function(fn){ timers.push(fn); return timers.length; };
-    var intentos = 0;
-    sb.fetch = function(url){
-      if(String(url).indexOf('/ticket')>=0){
-        intentos++;
-        if(intentos < 3) return Promise.reject(new Error('red'));
-        return Promise.resolve({ok:true, json:function(){ return Promise.resolve(
-          {ok:true, ticket:'cc11bb22cc33dd44ee55ff66001122334455667788990033'}); }});
-      }
-      return Promise.reject(new Error('offline'));
-    };
-    sb.location.origin = 'https://lacuota.org';
-    sb.location.pathname = '/';
-    loadApp(sb);
-    sb.__lacuotaSub.devolver('TOK_REINTENTO');
-    setTimeout(function(){
-      t('boleto v62: el primer fallo programa un reintento', timers.length>=1 && intentos===1,
-        'intentos='+intentos+' timers='+timers.length);
-      timers.shift()();
-      setTimeout(function(){
-        t('boleto v62: el segundo fallo programa otro reintento', timers.length>=1 && intentos===2,
-          'intentos='+intentos+' timers='+timers.length);
-        timers.shift()();
-        setTimeout(function(){
-          t('boleto v62: al tercer intento pide el boleto y reabre la app',
-            intentos===3 && sb.location.href.indexOf('intent://lacuota.org/?t=cc11bb22')===0,
-            'intentos='+intentos+' href='+String(sb.location.href).slice(0,60));
-          resolve();
-        }, 30);
-      }, 30);
-    }, 40);
-  }));
-  /* v62: la app abierta canjea el boleto que la pestaña dejó en el
-     almacenamiento compartido (el puente que rescata la ventana que
-     esperaba el regreso de Google). */
+  /* 63d: Google dice "código ya usado" (lo canjeó otra ventana del teléfono)
+     -> espera silenciosa, sin errores visibles. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    sb.fetch = function(){
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
-        {ok:true, sub:'sub-c', trialStart:6161, trialUsed:false, trialActive:true, trialExpired:false}); } });
+    var V = new Array(87).join('v'), ST = new Array(21).join('st');
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:V, s:ST, ts:Date.now()}));
+    var calls = 0;
+    sb.fetch = function(url){
+      if(String(url).indexOf('/google/code')>=0) calls++;
+      return Promise.resolve({ ok:false, json:function(){ return Promise.resolve({ok:false, reason:'codigo_usado'}); } });
     };
     loadApp(sb);
-    sb.localStorage.setItem('lacuota_ticket',
-      JSON.stringify({t:'dd11bb22cc33dd44ee55ff66001122334455667788990044', ts:Date.now()}));
-    var t2 = sb.__lacuotaSub.canjearCompartido();
+    sb.__lacuotaSub.canjearCodigo('CODIGO1234567890', ST);
+    setTimeout(function(){
+      t('63d: con código ya usado se intenta canjear una sola vez',
+        calls===1, calls+' llamadas');
+      t('63d: no se muestra ningún error al usuario',
+        sb.__els['verMsg'].hidden===true, 'verMsg='+sb.__els['verMsg'].textContent);
+      t('63d: se queda en "Entrando…" esperando la sesión de la otra ventana',
+        /Entrando/.test(sb.__els['verStep'].textContent), sb.__els['verStep'].textContent);
+      resolve();
+    }, 80);
+  }));
+  /* 63e: arranque con ?code= en la dirección -> canjea y entra a los grupos. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    var V = new Array(87).join('v'), ST = new Array(21).join('st');
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:V, s:ST, ts:Date.now()}));
+    sb.location.search = '?code=CODIGO1234567890&state='+ST;
+    var m = /var APP_V\s*=\s*(\d+)/.exec(appJs);
+    var appV = m ? parseInt(m[1],10) : 0;
+    sb.fetch = function(url){
+      var u = String(url);
+      if(u.indexOf('version.json')>=0)
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v:appV}); }});
+      if(u.indexOf('/google/code')>=0)
+        return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
+          {ok:true, sub:'u1', trialStart:555, trialUsed:false, trialActive:true, trialExpired:false}); } });
+      return Promise.reject(new Error('offline'));
+    };
+    loadApp(sb); /* el arranque lee ?code= */
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
-      t('boleto compartido: se detecta en el almacenamiento',
-        t2==='dd11bb22cc33dd44ee55ff66001122334455667788990044', String(t2));
-      t('boleto compartido: se canjea y cae directo en los grupos',
-        st.googleOk===true && sb.__els['v-home'].hidden===false && sb.__els['v-verify'].hidden===true,
-        'googleOk='+st.googleOk+' v-home.hidden='+sb.__els['v-home'].hidden);
+      t('63e: el arranque canjea el código que trae la dirección',
+        st.googleOk===true && st.trialStart===555, JSON.stringify(st));
+      t('63e: entra directo a los grupos sin mostrar la puerta',
+        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
       resolve();
     }, 80);
   }));
-  /* v62: boleto ya canjeado (410) pero con la sesión verificada en el
-     disco (otra ventana lo canjeó): se entra a los grupos, jamás a la
-     puerta varada. */
+  /* 63f: arranque con ?error= (cerró la ventana de Google) -> puerta silenciosa. */
   asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, googleOk:true})});
-    sb.fetch = function(){
-      return Promise.resolve({ ok:false, status:410,
-        json:function(){ return Promise.resolve({ok:false, error:'usado'}); } });
-    };
-    loadApp(sb);
-    sb.__lacuotaSub.canjear('ee11bb22cc33dd44ee55ff66001122334455667788990055');
-    setTimeout(function(){
-      t('boleto 410 con sesión en disco: entra a los grupos',
-        sb.__els['v-home'].hidden===false && sb.__els['v-verify'].hidden===true,
-        'v-home.hidden='+sb.__els['v-home'].hidden+' v-verify.hidden='+sb.__els['v-verify'].hidden);
-      resolve();
-    }, 80);
-  }));
-  /* v62: con versión nueva disponible, el arranque se bloquea en
-     "Actualizando…" y jamás deja operar con el código viejo. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    sb.location.search = '?error=access_denied';
+    var calls = 0;
     var m = /var APP_V\s*=\s*(\d+)/.exec(appJs);
-    var appV = m ? parseInt(m[1], 10) : 0;
-    var updateCalls = 0;
-    sb.navigator.serviceWorker = {
-      getRegistration: function(){ return Promise.resolve({update:function(){ updateCalls++; return Promise.resolve(true); }}); },
-      addEventListener: function(){}
-    };
+    var appV = m ? parseInt(m[1],10) : 0;
     sb.fetch = function(url){
-      if(String(url).indexOf('version.json')>=0)
-        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v: appV+1}); }});
+      var u = String(url);
+      if(u.indexOf('/google/code')>=0) calls++;
+      if(u.indexOf('version.json')>=0)
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v:appV}); }});
       return Promise.reject(new Error('offline'));
     };
     loadApp(sb);
     setTimeout(function(){
-      t('versión nueva: bloquea con "Actualizando…" y pide la actualización',
-        updateCalls===1 && sb.__els['verStep'].textContent==='Actualizando…',
-        'updateCalls='+updateCalls+' paso='+sb.__els['verStep'].textContent);
-      t('versión nueva: no arranca la puerta con el código viejo',
-        sb.__lacuotaBooted!==true, String(sb.__lacuotaBooted));
+      t('63f: con error de Google no se canjea nada',
+        calls===0, calls+' canjes');
+      t('63f: la puerta queda lista y silenciosa',
+        sb.__els['v-verify'].hidden===false && sb.__els['verMsg'].hidden===true, '');
       resolve();
     }, 60);
   }));
-/* 15s (v54): "Cerrar sesión" está en el inicio (no en Ajustes): cierra la
-     sesión de Google y vuelve a mostrar la puerta, sin tocar grupos ni pagos.
-     v55: además deja la marca expectNoSession. v58: el auto-entrar se apaga forzando el selector de cuenta. */
+  /* 63g: la puerta abierta desde un grupo vuelve al grupo tras verificar. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    var V = new Array(87).join('v'), ST = new Array(21).join('st');
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:V, s:ST, ts:Date.now()}));
+    sb.fetch = function(){
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
+        {ok:true, trialStart:777, trialUsed:false, trialActive:true, trialExpired:false}); } });
+    };
+    loadApp(sb);
+    sb.__lacuotaSub.enlace('#/g/g1'); /* entra al grupo */
+    sb.__lacuotaSub.verificar(); /* la puerta recuerda el grupo abierto */
+    sb.__lacuotaSub.canjearCodigo('CODIGO1234567890', ST);
+    setTimeout(function(){
+      t('63g: tras verificar vuelve al grupo, no a la página inicial',
+        sb.__els['v-group'].hidden===false && sb.__els['v-home'].hidden===true,
+        'v-group.hidden='+sb.__els['v-group'].hidden);
+      t('63g: la marca de destino se consume',
+        sb.sessionStorage.getItem('lacuota_verGid')===null, String(sb.sessionStorage.getItem('lacuota_verGid')));
+      resolve();
+    }, 80);
+  }));
+  /* 63h: vector oficial de PKCE (RFC 7636). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml)});
+    sb.crypto = require('crypto').webcrypto; sb.TextEncoder = TextEncoder;
+    sb.btoa = function(s){ return Buffer.from(s, 'binary').toString('base64'); };
+    loadApp(sb);
+    sb.__lacuotaSub.reto('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk').then(function(ch){
+      t('63h: el reto PKCE coincide con el vector del RFC 7636',
+        ch==='E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', String(ch));
+      resolve();
+    }, function(e){
+      t('63h: el reto PKCE coincide con el vector del RFC 7636', false, String(e&&e.message));
+      resolve();
+    });
+  }));
+  /* 63i: la dirección de regreso según el dominio. */
+  (function(){
+    var sb = psb({ids: idsFromHtml(indexHtml)});
+    loadApp(sb);
+    t('63i: en lacuota.org el regreso es https://lacuota.org/',
+      sb.__lacuotaSub.urlRegreso()==='https://lacuota.org/', sb.__lacuotaSub.urlRegreso());
+    sb.location.hostname = 'shadown9.github.io';
+    t('63i: en github.io el regreso es la URL de la app',
+      sb.__lacuotaSub.urlRegreso()==='https://shadown9.github.io/la-cuota/', sb.__lacuotaSub.urlRegreso());
+  })();
+/* 15s (v63): "Cerrar sesión" está en el inicio: limpia la marca local y
+     muestra la puerta, sin tocar grupos ni pagos y sin depender de red. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml),
       seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
+    var calls = 0;
+    sb.fetch = function(url){ if(String(url).indexOf('/google/')>=0) calls++; return Promise.reject(new Error('offline')); };
     loadApp(sb);
-    var signOutCalls = 0;
-    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-      return { signOut:function(){ signOutCalls++; return Promise.resolve(); } };
-    }};
     sb.__els['homeSignOut']._ev.click();
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
-      t('cerrar sesión: llamó a signOut de Firebase', signOutCalls===1, signOutCalls+' llamadas');
-      t('cerrar sesión: no depende de la librería de Google (ya no se carga gsi)', typeof sb.google==='undefined', typeof sb.google);
-      t('cerrar sesión: deja la marca "pedí salir" (expectNoSession)', st.expectNoSession===true, JSON.stringify(st));
       t('cerrar sesión: limpia la verificación', st.googleOk===false, JSON.stringify(st));
+      t('cerrar sesión: deja la marca "pedí salir" (expectNoSession)', st.expectNoSession===true, JSON.stringify(st));
       t('cerrar sesión: muestra la puerta de Google', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
-      t('cerrar sesión: la puerta vuelve a pedir verificación (grupos intactos)',
+      t('cerrar sesión: no necesita red (cero llamadas)', calls===0, calls+' llamadas');
+      t('cerrar sesión: los grupos quedan intactos (la puerta vuelve a pedir verificar)',
         sb.__lacuotaSub.necesitaVerificar()===true, String(sb.__lacuotaSub.necesitaVerificar()));
       t('cerrar sesión: la puerta muestra la versión en letra pequeña',
         /^v\d+$/.test(sb.__els['verVer'].textContent), sb.__els['verVer'].textContent);
       resolve();
     }, 60);
   }));
-  /* 15t (v55): si la sesión vieja sigue viva al arrancar tras un cierre
-     explícito, la app NO entra sola: se queda en la puerta. Sin la marca,
-     el rescate de redirect (v49) sigue funcionando igual. */
-  asyncTests.push(new Promise(function(resolve){
-    function bootConZombie(flag, pending, cb){
-      var sb = psb({ids: idsFromHtml(indexHtml),
-        seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, expectNoSession:flag, redirectPending:pending})});
-      var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
-      sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-        return {
-          currentUser: zombie,
-          signOut:function(){ return Promise.resolve(); },
-          getRedirectResult:function(){ return Promise.resolve(null); },
-          onAuthStateChanged:function(){ return function(){}; }
-        };
-      }};
-      var fetchCalls = 0;
-      /* nube.js también habla con la base al arrancar: aquí solo cuenta la
-         verificación de la cuenta contra el worker (/trial). */
-      sb.fetch = function(url){ if(String(url).indexOf('/trial')>=0) fetchCalls++; return Promise.reject(new Error('offline')); };
-      loadApp(sb);
-      setTimeout(function(){ cb(sb, fetchCalls); }, 60);
-    }
-    bootConZombie(true, false, function(sb, fetchCalls){
-      var st = sb.__lacuotaSub.cuenta();
-      t('con marca de cierre: no intenta verificar la sesión vieja', fetchCalls===0, fetchCalls+' fetch');
-      t('con marca de cierre: sigue sin verificar', st.googleOk===false, JSON.stringify(st));
-      t('con marca de cierre: se queda en la puerta', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
-      bootConZombie(false, true, function(sb2, fetchCalls2){
-        t('sin marca, volviendo de Google (rescate v49): sí completa con la sesión guardada', fetchCalls2===1, fetchCalls2+' fetch');
-        resolve();
-      });
-    });
-  }));
-  /* 15u (v55): si el cierre no logra matar la sesión, no finge que cerró:
-     avisa con mensaje amable y te deja adentro con tu sesión intacta. */
+  /* 15t (v63): tras un cierre explícito, un código viejo en la dirección
+     no se canjea: el usuario pidió salir. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, expectNoSession:true})});
+    var ST = new Array(21).join('st');
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:new Array(87).join('v'), s:ST, ts:Date.now()}));
+    sb.location.search = '?code=CODIGO1234567890&state='+ST;
+    var codeCalls = 0;
+    var m = /var APP_V\s*=\s*(\d+)/.exec(appJs);
+    var appV = m ? parseInt(m[1],10) : 0;
+    sb.fetch = function(url){
+      var u = String(url);
+      if(u.indexOf('version.json')>=0)
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v:appV}); }});
+      if(u.indexOf('/google/code')>=0) codeCalls++;
+      return Promise.reject(new Error('offline'));
+    };
     loadApp(sb);
-    var signOutCalls = 0;
-    var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
-    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-      return { currentUser: zombie,
-        signOut:function(){ signOutCalls++; return Promise.resolve(); } };
-    }};
-    sb.__els['homeSignOut']._ev.click();
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
-      t('cierre fallido: reintentó cerrar la sesión', signOutCalls===2, signOutCalls+' llamadas');
-      t('cierre fallido: no finge, restaura la sesión', st.googleOk===true && st.expectNoSession===false, JSON.stringify(st));
-      t('cierre fallido: se queda en el inicio (no muestra la puerta)',
-        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      t('cierre fallido: avisa amable, sin códigos',
-        /No se pudo cerrar la sesión/.test(sb.__els['toast'].textContent) && !/signout/.test(sb.__els['toast'].textContent),
-        sb.__els['toast'].textContent);
+      t('con marca de cierre: el código viejo no se canjea', codeCalls===0, codeCalls+' canjes');
+      t('con marca de cierre: sigue sin verificar', st.googleOk===false, JSON.stringify(st));
+      t('con marca de cierre: se queda en la puerta', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
       resolve();
     }, 60);
   }));
-  /* 15v (v56): al arrancar normal no se persigue ninguna sesión: sin un
-     redirect pendiente, la app no espera ni muestra avisos aunque quede una
-     sesión vieja en el teléfono. Volviendo de Google, el rescate sigue. */
+  /* 15v (v63): al arrancar normal no se canjea nada: sin ?code= no hay
+     llamadas al worker de Google. */
   asyncTests.push(new Promise(function(resolve){
-    function bootZombie(pending, cb){
-      var sb = psb({ids: idsFromHtml(indexHtml),
-        seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, redirectPending:pending})});
-      var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
-      sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-        return {
-          currentUser: zombie,
-          signOut:function(){ return Promise.resolve(); },
-          getRedirectResult:function(){ return Promise.resolve(null); },
-          onAuthStateChanged:function(){ return function(){}; }
-        };
-      }};
-      var fetchCalls = 0;
-      sb.fetch = function(url){ if(String(url).indexOf('/trial')>=0) fetchCalls++; return Promise.reject(new Error('offline')); };
-      loadApp(sb);
-      setTimeout(function(){ cb(sb, fetchCalls); }, 60);
-    }
-    bootZombie(false, function(sb, fetchCalls){
-      t('arranque normal: no intenta rescatar la sesión vieja', fetchCalls===0, fetchCalls+' fetch');
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false})});
+    var codeCalls = 0;
+    var m = /var APP_V\s*=\s*(\d+)/.exec(appJs);
+    var appV = m ? parseInt(m[1],10) : 0;
+    sb.fetch = function(url){
+      var u = String(url);
+      if(u.indexOf('version.json')>=0)
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v:appV}); }});
+      if(u.indexOf('/google/code')>=0) codeCalls++;
+      return Promise.reject(new Error('offline'));
+    };
+    loadApp(sb);
+    setTimeout(function(){
+      t('arranque normal: no canjea nada sin código', codeCalls===0, codeCalls+' canjes');
       t('arranque normal: no muestra ningún aviso', sb.__els['verMsg'].hidden===true, 'verMsg.hidden='+sb.__els['verMsg'].hidden);
       t('arranque normal: se queda en la puerta', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
-      bootZombie(true, function(sb2, fetchCalls2){
-        t('volviendo de Google: el rescate sigue funcionando', fetchCalls2===1, fetchCalls2+' fetch');
-        resolve();
-      });
-    });
+      resolve();
+    }, 60);
   }));
   /* 15y (v57): el marcador #entrar-app se consume al arrancar: marca la
      sesión para avisar que vuelva a la app, sin guardarlo como enlace. */
