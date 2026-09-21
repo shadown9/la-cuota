@@ -1,0 +1,7 @@
+name = "lacuota-pagos"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "SUBS"
+id = "REEMPLAZAR_CON_ID_REAL_DE_KV"
