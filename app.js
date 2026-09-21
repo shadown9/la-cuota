@@ -1538,7 +1538,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 63;
+var APP_V = 64;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1707,8 +1707,8 @@ try{
   var _code0 = null, _state0 = null;
   try{
     var _qs = String(location.search || '');
-    var _qm = _qs.match(/[?&]code=([A-Za-z0-9\-_~.]{10,})/);
-    var _sm = _qs.match(/[?&]state=([A-Za-z0-9\-_~.]{10,})/);
+    var _qm = _qs.match(/[?&]code=([A-Za-z0-9\-_~.%]{10,})/);
+    var _sm = _qs.match(/[?&]state=([A-Za-z0-9\-_~.%]{10,})/);
     if(_qm){
       _code0 = decodeURIComponent(_qm[1]);
       _state0 = _sm ? decodeURIComponent(_sm[1]) : null;

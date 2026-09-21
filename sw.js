@@ -1,5 +1,5 @@
 /* La Cuota — service worker: funciona sin conexión */
-var CACHE = 'lacuota-v63';
+var CACHE = 'lacuota-v64';
 var FILES = [
   './',
   './index.html',

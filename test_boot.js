@@ -709,6 +709,42 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 80);
   }));
+  /* 63e2 (REGRESIÓN v63 real): Google devuelve el código con %2F/%2B/%3D
+     en la dirección (location.search crudo). El arranque debe leerlo,
+     decodificarlo y canjearlo; antes el regex lo rechazaba y la app
+     volvía a la puerta en silencio. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    var V = new Array(87).join('v'), ST = 'eW5nReyObt5ycp05hpUgWKLtLXh_XvYgRwCjoGyyOv4';
+    sb.localStorage.setItem('lacuota_pkce', JSON.stringify({v:V, s:ST, ts:Date.now()}));
+    sb.location.search = '?state='+ST+'&iss=https%3A%2F%2Faccounts.google.com' +
+      '&code=4%2F0AXlqoi6u3-XUZCQyWeDvdQJTmfLaYTA2WDzAdvqA8i8JP8UKbeEaxpCKN57RLqlB8l_dVA' +
+      '&scope=email+openid&authuser=0&prompt=none';
+    var m = /var APP_V\s*=\s*(\d+)/.exec(appJs);
+    var appV = m ? parseInt(m[1],10) : 0;
+    var codeSent = null;
+    sb.fetch = function(url, opts){
+      var u = String(url);
+      if(u.indexOf('version.json')>=0)
+        return Promise.resolve({ok:true, json:function(){ return Promise.resolve({v:appV}); }});
+      if(u.indexOf('/google/code')>=0){
+        try{ codeSent = JSON.parse(opts.body).code; }catch(e){}
+        return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(
+          {ok:true, sub:'u1', trialStart:555, trialUsed:false, trialActive:true, trialExpired:false}); } });
+      }
+      return Promise.reject(new Error('offline'));
+    };
+    loadApp(sb);
+    setTimeout(function(){
+      t('63e2: el arranque lee el código con %2F de la dirección real de Google',
+        codeSent === '4/0AXlqoi6u3-XUZCQyWeDvdQJTmfLaYTA2WDzAdvqA8i8JP8UKbeEaxpCKN57RLqlB8l_dVA',
+        String(codeSent).slice(0,30));
+      var st = sb.__lacuotaSub.cuenta();
+      t('63e2: canjea y entra a los grupos',
+        st.googleOk===true && sb.__els['v-home'].hidden===false, JSON.stringify(st).slice(0,60));
+      resolve();
+    }, 80);
+  }));
   /* 63f: arranque con ?error= (cerró la ventana de Google) -> puerta silenciosa. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
