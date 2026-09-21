@@ -7,6 +7,7 @@ var DIR = __dirname;
 var appJs = fs.readFileSync(path.join(DIR,'app.js'),'utf8');
 var indexHtml = fs.readFileSync(path.join(DIR,'index.html'),'utf8');
 var swJs = fs.readFileSync(path.join(DIR,'sw.js'),'utf8');
+var cssTxt = fs.readFileSync(path.join(DIR,'styles.css'),'utf8');
 /* Muestra del HTML v28 (antes en /tmp/repro): fixture dentro del repo para
    que las pruebas no dependan de archivos temporales. */
 var v28Html = fs.readFileSync(path.join(DIR,'test','fixtures','index-v28.html'),'utf8');
@@ -510,7 +511,8 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     return { lacuota_v1: JSON.stringify({
       groups:o.groups||{}, members:{}, payments:o.payments||{}, payTs:{}, delMembers:{}, unpays:{},
       onboarded:true, trialStart:o.trialStart||0, payActive:!!o.payActive, payEmail:o.payEmail||'',
-      notifyPay:false, ui:{}, googleOk:!!o.googleOk, expectNoSession:!!o.expectNoSession
+      notifyPay:false, ui:{}, googleOk:!!o.googleOk, expectNoSession:!!o.expectNoSession,
+      redirectPending:!!o.redirectPending
     })};
   }
   var threw = null;
@@ -647,7 +649,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
      resultado viene vacío aunque la sesión siga viva: la app completa la
      verificación con la sesión guardada en vez de varar al usuario. */
   asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
     loadApp(sb);
     var fetchCalls = [];
     sb.__lacuotaSub.setAuth({
@@ -677,11 +679,11 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* 15l (v50/v51): redirect vacío y sin sesión guardada: la puerta lo dice
-     en tono amable y SIN códigos en pantalla (los códigos solo quedan en el
-     registro interno, el usuario jamás ve errores). */
+  /* 15l (v50/v51/v56): volviendo de Google sin sesión: la puerta lo dice en
+     tono amable y SIN códigos en pantalla (los códigos solo quedan en el
+     registro interno). El aviso se muestra en gris tranquilo, nunca en rojo. */
   asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
     loadApp(sb);
     sb.__lacuotaSub.setAuth({
       ready: function(){ return true; },
@@ -793,6 +795,14 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /S\.expectNoSession = false;/.test(appJs));
   t('v55: al cerrar sesión se apaga el auto-entrar de Google',
     /disableAutoSelect\(\)/.test(appJs));
+  t('v56: el redirect a Google deja marca pendiente para rescatar al volver',
+    /S\.redirectPending = true; save\(\);/.test(appJs));
+  t('v56: al arrancar normal (sin volver de Google) no se persigue ninguna sesión',
+    /if\(!veniaDeGoogle\)\{ verStep\(null\); return; \}/.test(appJs));
+  t('v56: si se cierra la ventanita de Google no se muestra ningún aviso',
+    !/Se canceló el inicio de sesión/.test(appJs));
+  t('v56: la puerta jamás muestra alarmas en rojo',
+    !/#verMsg\{color:#b00020/.test(cssTxt));
   /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
      devuelve el token sin salir de la página; se canjea por la sesión de
      Firebase y la prueba se verifica con el token del usuario real. */
@@ -878,9 +888,10 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* 15q (v52): en la app instalada, si se descarta la ventanita de Google,
-     la puerta muestra un mensaje amable y NO intenta el popup (que se
-     quedaría colgado en una pestaña del sistema). */
+  /* 15q (v52/v56): en la app instalada, si se descarta la ventanita de Google,
+     NO se intenta el popup (que se quedaría colgado en una pestaña del
+     sistema) y NO se muestra ningún mensaje: la puerta queda lista en
+     silencio, porque cerrar la ventanita no es un error. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
     loadApp(sb);
@@ -911,8 +922,8 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     sb.__els['verGoogle']._ev.click();
     setTimeout(function(){
       var vm = sb.__els['verMsg'];
-      t('descarte en instalada: mensaje amable sin códigos',
-        vm.hidden===false && /Se canceló/.test(vm.textContent) && !/código/.test(vm.textContent), vm.textContent);
+      t('descarte en instalada: no se muestra ningún mensaje (cerrar la ventanita no es un error)',
+        vm.hidden===true, 'verMsg.hidden='+vm.hidden+' texto='+vm.textContent);
       t('descarte en instalada: no intenta popup ni redirect',
         popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
       t('descarte en instalada: el botón queda habilitado',
@@ -954,9 +965,9 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
      explícito, la app NO entra sola: se queda en la puerta. Sin la marca,
      el rescate de redirect (v49) sigue funcionando igual. */
   asyncTests.push(new Promise(function(resolve){
-    function bootConZombie(flag, cb){
+    function bootConZombie(flag, pending, cb){
       var sb = psb({ids: idsFromHtml(indexHtml),
-        seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, expectNoSession:flag})});
+        seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, expectNoSession:flag, redirectPending:pending})});
       var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
       sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
         return {
@@ -973,13 +984,13 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       loadApp(sb);
       setTimeout(function(){ cb(sb, fetchCalls); }, 60);
     }
-    bootConZombie(true, function(sb, fetchCalls){
+    bootConZombie(true, false, function(sb, fetchCalls){
       var st = sb.__lacuotaSub.cuenta();
       t('con marca de cierre: no intenta verificar la sesión vieja', fetchCalls===0, fetchCalls+' fetch');
       t('con marca de cierre: sigue sin verificar', st.googleOk===false, JSON.stringify(st));
       t('con marca de cierre: se queda en la puerta', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
-      bootConZombie(false, function(sb2, fetchCalls2){
-        t('sin marca (rescate v49): sí completa con la sesión guardada', fetchCalls2===1, fetchCalls2+' fetch');
+      bootConZombie(false, true, function(sb2, fetchCalls2){
+        t('sin marca, volviendo de Google (rescate v49): sí completa con la sesión guardada', fetchCalls2===1, fetchCalls2+' fetch');
         resolve();
       });
     });
@@ -1006,6 +1017,69 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       t('cierre fallido: avisa amable, sin códigos',
         /No se pudo cerrar la sesión/.test(sb.__els['toast'].textContent) && !/signout/.test(sb.__els['toast'].textContent),
         sb.__els['toast'].textContent);
+      resolve();
+    }, 60);
+  }));
+  /* 15v (v56): al arrancar normal no se persigue ninguna sesión: sin un
+     redirect pendiente, la app no espera ni muestra avisos aunque quede una
+     sesión vieja en el teléfono. Volviendo de Google, el rescate sigue. */
+  asyncTests.push(new Promise(function(resolve){
+    function bootZombie(pending, cb){
+      var sb = psb({ids: idsFromHtml(indexHtml),
+        seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false, redirectPending:pending})});
+      var zombie = { getIdToken:function(){ return Promise.resolve('tok-zombie'); } };
+      sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+        return {
+          currentUser: zombie,
+          signOut:function(){ return Promise.resolve(); },
+          getRedirectResult:function(){ return Promise.resolve(null); },
+          onAuthStateChanged:function(){ return function(){}; }
+        };
+      }};
+      var fetchCalls = 0;
+      sb.fetch = function(url){ if(String(url).indexOf('/trial')>=0) fetchCalls++; return Promise.reject(new Error('offline')); };
+      loadApp(sb);
+      setTimeout(function(){ cb(sb, fetchCalls); }, 60);
+    }
+    bootZombie(false, function(sb, fetchCalls){
+      t('arranque normal: no intenta rescatar la sesión vieja', fetchCalls===0, fetchCalls+' fetch');
+      t('arranque normal: no muestra ningún aviso', sb.__els['verMsg'].hidden===true, 'verMsg.hidden='+sb.__els['verMsg'].hidden);
+      t('arranque normal: se queda en la puerta', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
+      bootZombie(true, function(sb2, fetchCalls2){
+        t('volviendo de Google: el rescate sigue funcionando', fetchCalls2===1, fetchCalls2+' fetch');
+        resolve();
+      });
+    });
+  }));
+  /* 15w (v56): si el usuario cierra la ventanita de Google, no se le muestra
+     nada: ni errores ni avisos. La puerta queda lista, en silencio. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false})});
+    loadApp(sb);
+    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    sb.google = { accounts: { id: {
+      initialize: function(){},
+      prompt: function(cb){ cb({isSkippedMoment:function(){return false;}, isDismissedMoment:function(){return true;}}); },
+      cancel: function(){}, disableAutoSelect: function(){}
+    }}};
+    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+      return {
+        currentUser: null,
+        signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
+        signInWithRedirect: function(){ return Promise.resolve(); },
+        signInWithCredential: function(){ return Promise.resolve({user:{getIdToken:function(){return Promise.resolve('x');}}}); }
+      };
+    }};
+    function FakeProvider(){ this.addScope = function(){}; }
+    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.fetch = function(){ return Promise.reject(new Error('offline')); };
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      t('ventanita cerrada: no se muestra ningún mensaje', sb.__els['verMsg'].hidden===true, 'verMsg.hidden='+sb.__els['verMsg'].hidden);
+      t('ventanita cerrada: el botón queda listo', sb.__els['verGoogle'].disabled===false, 'disabled='+sb.__els['verGoogle'].disabled);
+      t('ventanita cerrada: sigue sin verificar', sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
       resolve();
     }, 60);
   }));

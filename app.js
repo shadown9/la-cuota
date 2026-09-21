@@ -12,7 +12,7 @@ function load(){
     var raw = localStorage.getItem(KEY);
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
       s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; s.ui=s.ui||{};
-      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; return s; }
+      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; s.redirectPending=!!s.redirectPending; return s; }
   }catch(e){}
   return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{},
     /* Identidad: la prueba gratis exige una cuenta de Google verificada en
@@ -229,7 +229,12 @@ var FB_AUTH = {
          devuelve la sesión (se queda colgado): ahí ni se intenta. */
       if(instalada) return Promise.reject({code:'auth/popup-closed-by-user'});
       return auth.signInWithPopup(p).catch(function(err){
-        if(err && err.code === 'auth/popup-blocked') return auth.signInWithRedirect(p);
+        if(err && err.code === 'auth/popup-blocked'){
+          /* Se va a navegar a Google y volver: marcarlo para que al regresar
+             la app sepa que hay una sesión que rescatar. */
+          S.redirectPending = true; save();
+          return auth.signInWithRedirect(p);
+        }
         throw err;
       });
     }
@@ -432,7 +437,10 @@ function cuentaVerificar(userObj){
     var code = (e && e.code) || '';
     var emsg = String((e && e.message) || '');
     if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
-      msg('Se canceló el inicio de sesión. Tócalo de nuevo cuando quieras.');
+      /* El usuario cerró la ventanita de Google: no es un error y no se le
+         muestra nada. La puerta queda lista para cuando quiera intentarlo. */
+      verStep(null);
+      if(b) b.disabled=false;
     }else if(/rechazado/.test(emsg)){
       msg('Google no autorizó esta cuenta para la prueba. Prueba con otra cuenta de Google.', 'rechazado');
     }else if(/^http/.test(emsg)){
@@ -496,6 +504,13 @@ function cuentaVerificarRedirect(){
     /* Si el usuario tocó "Cerrar sesión", la sesión vieja que quede en el
        teléfono no vale: él pidió salir. Jamás entrar solo. */
     if(S.expectNoSession){ verStep(null); return; }
+    /* Solo rescatar una sesión si de verdad se acaba de volver de Google
+       (redirect pendiente). Al arrancar normal no hay nada que esperar:
+       antes se esperaban 4 segundos y se mostraba un aviso sin que el
+       usuario hubiera tocado nada. */
+    var veniaDeGoogle = S.redirectPending;
+    S.redirectPending = false; save();
+    if(!veniaDeGoogle){ verStep(null); return; }
     verStep('Volviendo de Google…');
     var u0 = null;
     try{ u0 = FB_AUTH.user(); }catch(e){}
@@ -1640,7 +1655,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 55;
+var APP_V = 56;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
