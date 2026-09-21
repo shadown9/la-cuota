@@ -7,6 +7,9 @@ var DIR = __dirname;
 var appJs = fs.readFileSync(path.join(DIR,'app.js'),'utf8');
 var indexHtml = fs.readFileSync(path.join(DIR,'index.html'),'utf8');
 var swJs = fs.readFileSync(path.join(DIR,'sw.js'),'utf8');
+/* Muestra del HTML v28 (antes en /tmp/repro): fixture dentro del repo para
+   que las pruebas no dependan de archivos temporales. */
+var v28Html = fs.readFileSync(path.join(DIR,'test','fixtures','index-v28.html'),'utf8');
 var failures = 0;
 function t(name, cond, extra){
   if(cond){ console.log('ok   '+name); }
@@ -135,8 +138,7 @@ function idsFromHtml(html){
 
 /* 5. Ejecución: HTML VIEJO (v28, sin appVer/setManageSub) + JS nuevo → NO debe tumbarse */
 (function(){
-  var sb = makeSandbox({ids: idsFromHtml(
-    fs.readFileSync('/tmp/repro/index-v28.html','utf8'))});
+  var sb = makeSandbox({ids: idsFromHtml(v28Html)});
   var threw = null;
   try{ loadApp(sb); }catch(e){ threw = e; }
   t('HTML viejo + JS nuevo: arranca sin excepción', !threw, threw && threw.message);
@@ -154,8 +156,7 @@ function idsFromHtml(html){
 
 /* 7. Ejecución: hash #/terminos con HTML viejo → no tumba, no blanco */
 (function(){
-  var sb = makeSandbox({ids: idsFromHtml(
-    fs.readFileSync('/tmp/repro/index-v28.html','utf8')), hash:'#/terminos'});
+  var sb = makeSandbox({ids: idsFromHtml(v28Html), hash:'#/terminos'});
   var threw = null;
   try{ loadApp(sb); }catch(e){ threw = e; }
   t('HTML viejo + #/terminos: sin excepción', !threw, threw && threw.message);
@@ -567,6 +568,38 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
+  /* 15e: reingreso con la prueba aún activa (worker nuevo): entra al
+     inicio sin ir al pago. Prueba vencida: va al pago. Worker viejo
+     (solo trialUsed, sin trialActive): se conserva el trato anterior. */
+  [['activa', {ok:true, trialUsed:true, trialStart:111, trialExpiresAt:222, trialActive:true, trialExpired:false}, 'v-home'],
+   ['vencida', {ok:true, trialUsed:true, trialStart:111, trialExpiresAt:222, trialActive:false, trialExpired:true}, 'v-pay'],
+   ['vieja', {ok:true, trialUsed:true, trialStart:111}, 'v-pay']
+  ].forEach(function(caso){
+    asyncTests.push(new Promise(function(resolve){
+      var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+      loadApp(sb);
+      sb.__lacuotaSub.setAuth({
+        ready: function(){ return true; },
+        user: function(){ return null; },
+        signIn: function(){ return Promise.resolve(null); },
+        redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('T'); }}}); },
+        token: function(){ return Promise.resolve(null); }
+      });
+      sb.fetch = function(){
+        return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(caso[1]); } });
+      };
+      sb.__lacuotaSub.redir();
+      setTimeout(function(){
+        var st = sb.__lacuotaSub.cuenta();
+        t('reingreso '+caso[0]+': verifica y guarda la prueba',
+          st.googleOk===true && st.trialStart===111, JSON.stringify(st));
+        t('reingreso '+caso[0]+': muestra '+caso[2],
+          (sb.__els[caso[2]]||{}).hidden===false,
+          'v-home.hidden='+((sb.__els['v-home']||{}).hidden)+' v-pay.hidden='+((sb.__els['v-pay']||{}).hidden));
+        resolve();
+      }, 60);
+    }));
+  });
 })();
 
 Promise.all(asyncTests).then(function(){

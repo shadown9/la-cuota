@@ -156,7 +156,7 @@ function copyText(txt, okMsg){
    y recuerda qué cuentas ya usaron su prueba (una cuenta = una prueba,
    para siempre). Borrar la app o crear otro grupo no da otra prueba.
    La clave API de Firebase es pública por diseño (no es un secreto). */
-var FB_CONFIG = { apiKey:'AIzaSyAuYIetDPremfkyuRzVwgTc-_bZqAjV1CU', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota' };
+var FB_CONFIG = { apiKey:'AIzaSyAuYIetDPremfkyuRzVwgTc-_bZqAjVICU', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota', appId:'1:741417625058:web:2fb25755b07783884ac5bb' };
 var FB_AUTH = {
   ready: function(){
     try{
@@ -272,13 +272,22 @@ function cuentaVerificar(userObj){
       S.googleTrialStart = res.trialStart || Date.now();
       if(!S.trialStart) S.trialStart = S.googleTrialStart;
       save();
-      if(res.trialUsed){
-        toast('Esta cuenta ya usó su prueba gratis. Activa tu suscripción para seguir.');
+      /* El worker nuevo distingue el reingreso con la prueba aún activa
+         (trialActive) de la prueba ya vencida (trialExpired). Con el worker
+         viejo solo llega trialUsed y se conserva el trato anterior. */
+      var sabeEstado = (res.trialActive === true) || (res.trialExpired === true);
+      var pruebaActiva = sabeEstado ? res.trialActive : !res.trialUsed;
+      var next = verNext; verNext = null;
+      if(pruebaActiva){
+        toast(res.trialUsed ? 'Sesión verificada. Tu prueba sigue activa.'
+                            : 'Prueba activada: 30 días gratis.');
+        if(next) next(); else renderHome();
+      }else if(res.trialExpired){
+        toast('Tu prueba gratis terminó. Activa tu suscripción para seguir.');
         renderPay();
       }else{
-        toast('Prueba activada: 30 días gratis.');
-        var next = verNext; verNext = null;
-        if(next) next(); else renderHome();
+        toast('Esta cuenta ya usó su prueba gratis. Activa tu suscripción para seguir.');
+        renderPay();
       }
     });
   }).catch(function(e){
@@ -1296,7 +1305,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 42;
+var APP_V = 43;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
