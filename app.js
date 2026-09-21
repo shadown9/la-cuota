@@ -1544,7 +1544,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 66;
+var APP_V = 67;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1617,6 +1617,8 @@ function actualizarAntesDeEntrar(codigo){
               if(done) return;
               if(!reg){ seguir(); return; }
               done = true;
+              /* El guardián no debe interferir: la app está actualizando a propósito. */
+              window.__lacuotaBooted = true;
               mostrarEntrando();
               verStep('Actualizando…');
               var recargado = false;
