@@ -677,8 +677,9 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* 15l (v50): redirect vacío y sin sesión guardada: la puerta lo dice claro
-     con código de diagnóstico, en vez de quedarse muda. */
+  /* 15l (v50/v51): redirect vacío y sin sesión guardada: la puerta lo dice
+     en tono amable y SIN códigos en pantalla (los códigos solo quedan en el
+     registro interno, el usuario jamás ve errores). */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
     loadApp(sb);
@@ -690,13 +691,80 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       signIn: function(){ return Promise.resolve(null); },
       token: function(){ return Promise.resolve(null); }
     });
+    var warned = [];
+    var origWarn = console.warn;
+    console.warn = function(){ warned.push(Array.prototype.slice.call(arguments).join(' ')); };
     sb.__lacuotaSub.redir();
     setTimeout(function(){
+      console.warn = origWarn;
       var msgEl = sb.__els['verMsg'];
-      t('sin sesión tras Google: muestra mensaje claro',
-        msgEl.hidden===false && /no devolvió la sesión/.test(msgEl.textContent), msgEl.textContent);
-      t('sin sesión tras Google: trae código de diagnóstico',
-        /sin-sesion/.test(msgEl.textContent), msgEl.textContent);
+      var txt = msgEl.textContent;
+      t('sin sesión tras Google: muestra mensaje amable',
+        msgEl.hidden===false && /no devolvió la sesión/.test(txt), txt);
+      t('sin sesión tras Google: NO muestra códigos en pantalla',
+        !/código:|sin-sesion/.test(txt), txt);
+      t('sin sesión tras Google: el código queda en el registro interno',
+        warned.some(function(w){ return /sin-sesion/.test(w); }), warned.join(' | '));
+      resolve();
+    }, 60);
+  }));
+  /* 15m (v51): el inicio con Google usa popup (todo queda en la misma
+     página, la sesión no se pierde) y verifica con el token del usuario
+     que trae el popup. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    var fetchCalls = [];
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      redirectResult: function(){ return Promise.resolve(null); },
+      user: function(){ return null; },
+      onUser: function(cb){ return function(){}; },
+      /* el popup devuelve la credencial con el usuario en la misma página */
+      signIn: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_POPUP'); }}}); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.fetch = function(url, opts){
+      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:555, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('popup: verifica con el token del usuario del popup',
+        st.googleOk===true && st.trialStart===555, JSON.stringify(st));
+      t('popup: llamó a /trial con el token del popup',
+        fetchCalls.length===1 && /TOK_POPUP/.test(fetchCalls[0].body), fetchCalls.length+' llamadas');
+      t('popup: entra al inicio',
+        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      resolve();
+    }, 60);
+  }));
+  /* 15n (v51): si el navegador bloquea el popup, el inicio REAL cae al
+     redirect como respaldo en vez de varar al usuario. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    /* Aquí NO se reemplaza FB_AUTH: se prueba el real con Firebase simulado */
+    var redirectCalls = 0;
+    function FakeProvider(){ this.addScope = function(){}; }
+    sb.firebase = {
+      apps: [],
+      initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
+          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      t('popup bloqueado: usa redirect como respaldo', redirectCalls===1, redirectCalls+' llamadas');
       resolve();
     }, 60);
   }));

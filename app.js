@@ -167,8 +167,18 @@ var FB_AUTH = {
   },
   user: function(){ try{ return firebase.auth().currentUser || null; }catch(e){ return null; } },
   signIn: function(){
+    var auth = firebase.auth();
     var p = new firebase.auth.GoogleAuthProvider();
-    return firebase.auth().signInWithRedirect(p);
+    try{ p.addScope('profile'); p.addScope('email'); }catch(e){}
+    /* El popup mantiene todo en la misma página: es el método confiable en
+       el teléfono. Con redirect, si la app está instalada, el regreso de
+       Google puede caer en otro contexto (pestaña del sistema) y la sesión
+       se pierde en el camino: la puerta se quedaba sin poder entrar.
+       Si el navegador bloquea el popup, se usa redirect como respaldo. */
+    return auth.signInWithPopup(p).catch(function(err){
+      if(err && err.code === 'auth/popup-blocked') return auth.signInWithRedirect(p);
+      throw err;
+    });
   },
   redirectResult: function(){
     try{ return firebase.auth().getRedirectResult(); }
@@ -248,10 +258,13 @@ function verStep(t){
 function cuentaVerificar(userObj){
   var m = document.getElementById('verMsg');
   var b = document.getElementById('verGoogle');
-  /* msg con código técnico pequeño: el usuario lee lo de arriba, y el
-     código nos dice a nosotros dónde se perdió el intento. */
+  /* msg con código técnico: el usuario solo ve el texto amable; el código
+     queda en el registro interno para diagnóstico. Cada mensaje visible es
+     único, así con lo que dice la pantalla sabemos dónde se perdió el
+     intento, sin mostrarle errores a nadie. */
   function msg(t, code){
-    if(m){ m.hidden=false; m.textContent = t + (code ? ' (código: '+code+')' : ''); }
+    if(m){ m.hidden=false; m.textContent = t; }
+    if(code){ try{ console.warn('[lacuota] google:', code); }catch(e){} }
     verStep(null);
     if(b) b.disabled=false;
   }
@@ -274,7 +287,12 @@ function cuentaVerificar(userObj){
     if(userObj && userObj.getIdToken) return userObj.getIdToken();
     return FB_AUTH.token().then(function(existing){
       if(existing) return existing;
-      return FB_AUTH.signIn().then(function(){ return null; });
+      return FB_AUTH.signIn().then(function(cred){
+        /* Con popup el usuario llega aquí mismo con su credencial; con
+           redirect la página ya navegó y el resultado se procesa al volver. */
+        if(cred && cred.user && cred.user.getIdToken) return cred.user.getIdToken();
+        return null;
+      });
     });
   }
   takeToken().then(function(idToken){
@@ -367,7 +385,8 @@ function cuentaVerificarRedirect(){
   function sinSesion(){
     verStep(null);
     var m=document.getElementById('verMsg');
-    if(m){ m.hidden=false; m.textContent='Google no devolvió la sesión. Toca «Continuar con Google» de nuevo. (código: sin-sesion)'; }
+    if(m){ m.hidden=false; m.textContent='Google no devolvió la sesión. Toca «Continuar con Google» de nuevo.'; }
+    try{ console.warn('[lacuota] google:', 'sin-sesion'); }catch(e){}
     var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
   }
   FB_AUTH.redirectResult().then(function(result){
@@ -404,8 +423,9 @@ function cuentaVerificarRedirect(){
   }).catch(function(e){
     verStep(null);
     var code=(e && e.code) || 'redirect';
+    try{ console.warn('[lacuota] google:', code); }catch(e2){}
     var m=document.getElementById('verMsg');
-    if(m){ m.hidden=false; m.textContent='No se pudo volver de Google. Toca el botón de nuevo. (código: '+code+')'; }
+    if(m){ m.hidden=false; m.textContent='No se pudo volver de Google. Toca el botón de nuevo.'; }
     var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
   });
 }
@@ -1475,7 +1495,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 50;
+var APP_V = 51;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
