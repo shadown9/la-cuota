@@ -466,6 +466,11 @@ function cerrarSesion(){
      local: la próxima vez Google vuelve a mostrar el selector de
      cuenta, así que no hay auto-entrada silenciosa que apagar. */
   S.googleOk = false; S.googleSub = ''; S.expectNoSession = true; save();
+  /* Cancelar la sincronización diferida con la nube: si llega mientras la
+     pantalla de verificación está visible podría llamar renderGroup() y
+     volver a meter al usuario dentro. */
+  clearTimeout(nubeT); nubeT = null;
+  nubeUnwatch();
   verNext = function(){ renderHome(); };
   showVerify();
 }
@@ -1544,7 +1549,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 68;
+var APP_V = 69;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1574,6 +1579,9 @@ document.addEventListener('visibilitychange', function(){
 function reanudarSiVerificado(){
   try{
     var v = $('v-verify'); if(!v || v.hidden) return;
+    /* Si el usuario cerró sesión a propósito, no volver a entrar aunque
+       payActive sea true (needsVerify devolvería false en ese caso). */
+    if(S.expectNoSession) return;
     if(L.needsVerify(S)) return;
     verStep(null);
     route();
@@ -1652,7 +1660,7 @@ function seguirArranque(codigo){
      (si traía uno) se guarda para retomarlo tras verificar. */
   var _rg = null;
   try{ _rg = sessionStorage.getItem('lacuota_verGid'); }catch(e){}
-  if(L.needsVerify(S)){
+  if(L.needsVerify(S) || S.expectNoSession){
     /* Solo se guarda, nunca se borra aquí: al volver de Google el hash viene
        vacío y borrarlo perdería el enlace pendiente. Lo consume
        aplicarSesionGoogle() tras verificar. */
