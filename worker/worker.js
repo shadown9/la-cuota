@@ -392,7 +392,10 @@ export default {
       const code = String((body && body.code) || '');
       const verifier = String((body && body.verifier) || '');
       const redirectUri = String((body && body.redirectUri) || '');
-      if (!/^[A-Za-z0-9\-_~.]{10,512}$/.test(code) ||
+      /* El código de Google viaja tal cual a su token endpoint (encodeURIComponent);
+         aquí solo se valida forma y largo para frenar basura. Acepta el
+         alfabeto amplio de Google (sus códigos pueden traer '/'). */
+      if (!/^[A-Za-z0-9\-_~.\/+%=]{10,1024}$/.test(code) ||
           !/^[A-Za-z0-9\-_~.]{43,128}$/.test(verifier) ||
           GOOGLE_REDIRECT_URIS.indexOf(redirectUri) < 0) {
         return json({ ok: false, reason: 'entrada' }, 400);
