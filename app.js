@@ -1202,11 +1202,11 @@ priv: {
   '<h3>Qué datos guardamos</h3>'+
   '<p>Los datos de tu grupo (nombre, miembros, montos y pagos) se guardan en tu teléfono. Son tuyos.</p>'+
   '<p>Si usas el enlace de tesorero para sincronizar entre teléfonos, esos datos se copian a nuestra base de datos en la nube, protegidos por una llave secreta que solo tú tienes. Sin esa llave, nadie puede leerlos.</p>'+
-  '<p>Para verificar tu suscripción guardamos tu correo electrónico y el estado de tu pago. Los pagos los procesa Stripe de forma segura: nosotros nunca vemos ni guardamos tu tarjeta.</p>'+
+  '<p>Para verificar tu suscripción guardamos tu correo electrónico y el estado de tu pago. Los pagos los procesan Stripe (en la web) y Google Play (en la aplicación de Android) de forma segura: nosotros nunca vemos ni guardamos tu tarjeta.</p>'+
   '<h3>Lo que no hacemos</h3>'+
   '<p>No vendemos tus datos. No mostramos anuncios. No usamos rastreadores de terceros.</p>'+
   '<h3>Tus derechos</h3>'+
-  '<p>Puedes borrar los datos de un grupo desde la app cuando quieras. Si quieres que borremos tu correo de nuestros registros, escríbenos a hola@lacuota.org.</p>'+
+  '<p>Puedes borrar los datos de un grupo desde la app cuando quieras. Si quieres que borremos tu correo de nuestros registros, escríbenos a soporte@lacuota.org.</p>'+
   '<h3>Seguridad</h3>'+
   '<p>Tu enlace de tesorero es tu llave: quien lo tenga puede ver y editar tu grupo. Guárdalo como una contraseña y no lo compartas con quien no deba verlo.</p>'+
   '<h3>Cambios</h3>'+
@@ -1220,9 +1220,9 @@ term: {
   '<h3>Precio</h3>'+
   '<p>30 días gratis por grupo desde que lo creas. Después: $2 USD al mes o $20 USD al año por grupo. Precios en dólares americanos.</p>'+
   '<h3>Pagos</h3>'+
-  '<p>Los pagos los procesa Stripe de forma segura. Al pagar también aceptas los términos de Stripe.</p>'+
+  '<p>En la web los pagos los procesa Stripe; en la aplicación de Android los procesa Google Play. Al pagar también aceptas los términos del procesador del pago.</p>'+
   '<h3>Cancelación</h3>'+
-  '<p>Puedes cancelar cuando quieras desde el enlace de tu recibo de Stripe o escribiéndonos a hola@lacuota.org. Mantienes el acceso hasta que termine el período que ya pagaste. No hay reembolsos por períodos parciales.</p>'+
+  '<p>Puedes cancelar cuando quieras: en la web desde el enlace de tu recibo de Stripe, y en la aplicación de Android desde tus suscripciones de Google Play; o escribiéndonos a soporte@lacuota.org. Mantienes el acceso hasta que termine el período que ya pagaste. No hay reembolsos por períodos parciales.</p>'+
   '<h3>Tu responsabilidad</h3>'+
   '<p>El enlace de tesorero es tu llave de acceso y tu respaldo: guárdalo bien. Eres responsable de lo que se haga con tus enlaces.</p>'+
   '<h3>Disponibilidad</h3>'+
@@ -1230,7 +1230,7 @@ term: {
   '<h3>Cambios</h3>'+
   '<p>Podemos actualizar estos términos; los cambios importantes se avisarán dentro de la app.</p>'+
   '<h3>Contacto y ley aplicable</h3>'+
-  '<p>Escríbenos a hola@lacuota.org. Estos términos se rigen por las leyes del estado de Nueva Jersey, EE.&nbsp;UU.</p>'
+  '<p>Escríbenos a soporte@lacuota.org. Estos términos se rigen por las leyes del estado de Nueva Jersey, EE.&nbsp;UU.</p>'
 }};
 function showLegal(which){
   var L = LEGAL[which] || LEGAL.priv;
@@ -1659,7 +1659,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 76;
+var APP_V = 63;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
