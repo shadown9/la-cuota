@@ -157,6 +157,59 @@ function copyText(txt, okMsg){
    para siempre). Borrar la app o crear otro grupo no da otra prueba.
    La clave API de Firebase es pública por diseño (no es un secreto). */
 var FB_CONFIG = { apiKey:'AIzaSyAuYIetDPremfkyuRzVwgTc-_bZqAjVICU', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota', appId:'1:741417625058:web:2fb25755b07783884ac5bb' };
+/* ID de cliente OAuth del proyecto (el mismo que Firebase usa para Google):
+   lo necesita la ventanita nativa de Google (FedCM/One Tap). Es público
+   por diseño: viaja en cada URL de acceso con Google. */
+var GOOGLE_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com';
+/* ¿La app corre instalada (pantalla completa) en vez de en una pestaña? */
+function esInstalada(){
+  try{
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+           (typeof navigator !== 'undefined' && navigator.standalone === true);
+  }catch(e){ return false; }
+}
+/* Ventanita nativa de Google (FedCM/One Tap, librería gsi): muestra el
+   selector de cuenta ENCIMA de la página, sin navegar fuera. Por eso es la
+   única vía confiable en la app instalada: el popup abre una pestaña del
+   sistema que nunca devuelve la sesión, y el redirect pierde su estado al
+   volver. Devuelve el token de Google (JWT) para canjearlo por la sesión
+   de Firebase con signInWithCredential. */
+function fedcmToken(){
+  return new Promise(function(resolve, reject){
+    var g = null;
+    try{ g = (typeof google !== 'undefined') ? google : null; }catch(e){ g = null; }
+    if(!g || !g.accounts || !g.accounts.id){
+      reject({code:'fedcm/no-disponible'}); return;
+    }
+    var done = false;
+    function fin(err, tok){
+      if(done) return; done = true;
+      try{ g.accounts.id.cancel(); }catch(e){}
+      if(err) reject(err); else resolve(tok);
+    }
+    try{
+      g.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: function(resp){
+          if(resp && resp.credential) fin(null, resp.credential);
+          else fin({code:'fedcm/sin-credencial'});
+        },
+        auto_select: false
+      });
+      g.accounts.id.prompt(function(notif){
+        /* Este aviso llega cuando la ventanita no se mostró (sin sesión en
+           el navegador, pausa de Chrome, etc.): ahí toca usar otro método. */
+        try{
+          if(notif && (notif.isSkippedMoment() || notif.isDismissedMoment())){
+            fin({code:'fedcm/omitido'});
+          }
+        }catch(e){}
+      });
+    }catch(e){ fin({code:'fedcm/no-disponible'}); }
+    /* Red de seguridad: si la librería se queda muda, no colgar la puerta. */
+    setTimeout(function(){ fin({code:'fedcm/tiempo-agotado'}); }, 90000);
+  });
+}
 var FB_AUTH = {
   ready: function(){
     try{
@@ -170,13 +223,28 @@ var FB_AUTH = {
     var auth = firebase.auth();
     var p = new firebase.auth.GoogleAuthProvider();
     try{ p.addScope('profile'); p.addScope('email'); }catch(e){}
-    /* El popup mantiene todo en la misma página: es el método confiable en
-       el teléfono. Con redirect, si la app está instalada, el regreso de
-       Google puede caer en otro contexto (pestaña del sistema) y la sesión
-       se pierde en el camino: la puerta se quedaba sin poder entrar.
-       Si el navegador bloquea el popup, se usa redirect como respaldo. */
-    return auth.signInWithPopup(p).catch(function(err){
-      if(err && err.code === 'auth/popup-blocked') return auth.signInWithRedirect(p);
+    var instalada = esInstalada();
+    function viaPopup(){
+      /* En la app instalada el popup abre una pestaña del sistema que nunca
+         devuelve la sesión (se queda colgado): ahí ni se intenta. */
+      if(instalada) return Promise.reject({code:'auth/popup-closed-by-user'});
+      return auth.signInWithPopup(p).catch(function(err){
+        if(err && err.code === 'auth/popup-blocked') return auth.signInWithRedirect(p);
+        throw err;
+      });
+    }
+    /* Orden: FedCM (ventanita nativa, no sale de la página) → popup →
+       redirect. La credencial de Google se canjea por la sesión de Firebase
+       aquí mismo, así el token que verifica la prueba sale del usuario
+       real, igual que con el popup. */
+    return fedcmToken().then(function(idToken){
+      var credencial = null;
+      try{ credencial = firebase.auth.GoogleAuthProvider.credential(idToken); }
+      catch(e){ throw {code:'fedcm/credencial-mala'}; }
+      return auth.signInWithCredential(credencial);
+    }).catch(function(err){
+      var code = (err && err.code) || '';
+      if(code.indexOf('fedcm/') === 0) return viaPopup();
       throw err;
     });
   },
@@ -243,6 +311,12 @@ function showVerify(){
   if(m){ m.hidden = true; m.textContent=''; }
   var b = document.getElementById('verGoogle');
   if(b) b.disabled = false;
+  /* Versión visible en letra pequeña: si algo falla en un teléfono,
+     con este número sabemos qué versión tiene instalada. */
+  try{
+    var vv = document.getElementById('verVer');
+    if(vv) vv.textContent = 'v' + APP_V;
+  }catch(e){}
   show('v-verify');
 }
 /* Línea pequeña bajo el botón que narra en qué paso va el regreso de
@@ -288,7 +362,7 @@ function cuentaVerificar(userObj){
     return FB_AUTH.token().then(function(existing){
       if(existing) return existing;
       return FB_AUTH.signIn().then(function(cred){
-        /* Con popup el usuario llega aquí mismo con su credencial; con
+        /* Con FedCM/popup el usuario llega aquí mismo con su credencial; con
            redirect la página ya navegó y el resultado se procesa al volver. */
         if(cred && cred.user && cred.user.getIdToken) return cred.user.getIdToken();
         return null;
@@ -1495,7 +1569,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 51;
+var APP_V = 52;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

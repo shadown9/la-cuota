@@ -145,6 +145,7 @@
       <p class="verstep" id="verStep" hidden></p>
       <p class="fine" id="verMsg" hidden></p>
       <p class="fine">No publicamos nada en tu nombre. Solo guardamos que esta cuenta ya usó su prueba, para que el sistema sea justo con todos.</p>
+      <p class="verver" id="verVer"></p>
     </div>
   </section>
 
@@ -321,6 +322,10 @@
      Si no carga (sin conexión), la verificación lo dice y no se bloquea la app. -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<!-- Ventanita nativa de Google (FedCM/One Tap): verifica sin salir de la
+     página, la única vía confiable en la app instalada. Si no carga, se usan
+     los métodos clásicos como respaldo. -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="app.js"></script>
 </body>
 </html>

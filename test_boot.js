@@ -768,6 +768,143 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
+  /* v52 (estático): la ventanita nativa de Google (FedCM) es la vía principal
+     en la app instalada, donde popup y redirect pierden la sesión. */
+  t('index.html carga la librería de Google (gsi)', /accounts\.google\.com\/gsi\/client/.test(indexHtml));
+  t('GOOGLE_CLIENT_ID del proyecto configurado', /GOOGLE_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug\.apps\.googleusercontent\.com'/.test(appJs));
+  t('signIn intenta FedCM primero y canjea por sesión de Firebase',
+    /fedcmToken\(\)\.then/.test(appJs) && /signInWithCredential/.test(appJs));
+  t('en la app instalada no se intenta el popup (se cuelga)',
+    /if\(instalada\) return Promise\.reject\(\{code:'auth\/popup-closed-by-user'\}\)/.test(appJs));
+  t('v-verify muestra la versión en letra pequeña (verVer)',
+    /id="verVer"/.test(indexHtml) && /getElementById\('verVer'\)/.test(appJs));
+  /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
+     devuelve el token sin salir de la página; se canjea por la sesión de
+     Firebase y la prueba se verifica con el token del usuario real. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    var gisCfg = null, credCalls = [], popupCalls = 0, redirectCalls = 0, fetchCalls = [];
+    sb.google = { accounts: { id: {
+      initialize: function(cfg){ gisCfg = cfg; },
+      prompt: function(cb){ gisCfg.callback({credential:'GIS_JWT_DE_PRUEBA'}); },
+      cancel: function(){}
+    }}};
+    function FakeProvider(){ this.addScope = function(){}; }
+    FakeProvider.credential = function(idToken){ credCalls.push(idToken); return {idToken:idToken}; };
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithCredential: function(cred){
+            return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_FEDCM'); }}});
+          },
+          signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-blocked'}); },
+          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.fetch = function(url, opts){
+      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:777, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('fedcm: canjea el token de Google por sesión de Firebase',
+        credCalls.length===1 && credCalls[0]==='GIS_JWT_DE_PRUEBA', credCalls.join(','));
+      t('fedcm: verifica con el token del usuario real',
+        st.googleOk===true && st.trialStart===777, JSON.stringify(st));
+      t('fedcm: llamó a /trial con el token de Firebase',
+        fetchCalls.length===1 && /TOK_FEDCM/.test(fetchCalls[0].body), fetchCalls.length+' llamadas');
+      t('fedcm: entra al inicio', sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      t('fedcm: no abrió popup ni redirect', popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
+      t('fedcm: usó el client_id del proyecto',
+        gisCfg && gisCfg.client_id==='741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com',
+        String(gisCfg && gisCfg.client_id));
+      resolve();
+    }, 60);
+  }));
+  /* 15p (v52): si la librería de Google no cargó, el inicio REAL cae al
+     popup clásico en vez de varar al usuario. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    /* sin sb.google: la librería gsi no cargó */
+    var popupCalls = 0, fetchCalls = [];
+    function FakeProvider(){ this.addScope = function(){}; }
+    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithCredential: function(){ return Promise.reject({code:'x'}); },
+          signInWithPopup: function(){ popupCalls++; return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_POPUP2'); }}}); },
+          signInWithRedirect: function(){ return Promise.resolve(); }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.fetch = function(url, opts){
+      fetchCalls.push(1);
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:888, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('sin gsi: cae al popup clásico', popupCalls===1, popupCalls+' llamadas');
+      t('sin gsi: verifica y entra', st.googleOk===true && sb.__els['v-home'].hidden===false, JSON.stringify(st));
+      resolve();
+    }, 60);
+  }));
+  /* 15q (v52): en la app instalada, si se descarta la ventanita de Google,
+     la puerta muestra un mensaje amable y NO intenta el popup (que se
+     quedaría colgado en una pestaña del sistema). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    var popupCalls = 0, redirectCalls = 0;
+    sb.google = { accounts: { id: {
+      initialize: function(cfg){},
+      prompt: function(cb){
+        cb({isSkippedMoment:function(){return false;}, isDismissedMoment:function(){return true;}, isDisplayMoment:function(){return false;}});
+      },
+      cancel: function(){}
+    }}};
+    function FakeProvider(){ this.addScope = function(){}; }
+    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithCredential: function(){ return Promise.reject({code:'x'}); },
+          signInWithPopup: function(){ popupCalls++; return new Promise(function(){}); },
+          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var vm = sb.__els['verMsg'];
+      t('descarte en instalada: mensaje amable sin códigos',
+        vm.hidden===false && /Se canceló/.test(vm.textContent) && !/código/.test(vm.textContent), vm.textContent);
+      t('descarte en instalada: no intenta popup ni redirect',
+        popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
+      t('descarte en instalada: el botón queda habilitado',
+        sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
+      resolve();
+    }, 60);
+  }));
   /* 15i: al verificar, la fecha local se alinea con la del servidor
      (autoridad), sin importar si había prueba local. */
   t('al verificar se adopta la fecha del servidor',
