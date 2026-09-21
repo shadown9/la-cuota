@@ -6,11 +6,172 @@
 //
 // Variables de entorno: STRIPE_WEBHOOK_SECRET, STRIPE_SECRET_KEY (secreto,
 // solo para crear sesiones del portal del cliente en /portal)
+// FB_PROJECT: ID del proyecto Firebase (por defecto 'la-cuota')
 // KV binding: SUBS
 
 async function sha256Hex(s) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* ---------- Verificación de identidad con Google (una prueba por cuenta) ----------
+   La app inicia sesión con Firebase Auth (Google) y nos envía el ID token.
+   Aquí verificamos la firma con los certificados públicos de Google y
+   registramos la primera vez que esa cuenta usa la prueba gratis.
+   Solo guardamos el hash SHA-256 del ID de usuario, nunca el ID directo. */
+
+function b64urlToBytes(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function b64urlToString(s) {
+  const b = b64urlToBytes(s);
+  let str = '';
+  for (let i = 0; i < b.length; i++) str += String.fromCharCode(b[i]);
+  return decodeURIComponent(escape(str));
+}
+function pemToDer(pem) {
+  const b64 = pem.replace(/-----BEGIN CERTIFICATE-----/, '')
+    .replace(/-----END CERTIFICATE-----/, '').replace(/\s+/g, '');
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* Lector DER mínimo: lee un TLV y lista los hijos de un SEQUENCE. */
+function derRead(buf, off) {
+  const tag = buf[off];
+  const lb = buf[off + 1];
+  let len, hl;
+  if (lb < 0x80) { len = lb; hl = 2; }
+  else {
+    const n = lb & 0x7f;
+    if (n === 0 || n > 4 || off + 2 + n > buf.length) return null;
+    len = 0;
+    for (let i = 0; i < n; i++) len = (len << 8) | buf[off + 2 + i];
+    hl = 2 + n;
+  }
+  if (off + hl + len > buf.length) return null;
+  return { tag, len, contentOff: off + hl, totalLen: hl + len };
+}
+function derChildren(buf, off) {
+  const t = derRead(buf, off);
+  if (!t || t.tag !== 0x30) return null;
+  const kids = [];
+  let p = t.contentOff;
+  const end = p + t.len;
+  while (p < end) {
+    const c = derRead(buf, p);
+    if (!c) return null;
+    kids.push({ off: p, totalLen: c.totalLen });
+    p += c.totalLen;
+  }
+  return kids;
+}
+const OID_RSA = [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
+/* Encuentra el SubjectPublicKeyInfo (SEQUENCE con OID rsaEncryption +
+   BIT STRING) dentro del certificado y devuelve su DER completo. */
+function derFindSpki(certBytes) {
+  try {
+    const certKids = derChildren(certBytes, 0);
+    if (!certKids || !certKids.length) return null;
+    const tbsKids = derChildren(certBytes, certKids[0].off);
+    if (!tbsKids) return null;
+    for (const k of tbsKids) {
+      const sk = derChildren(certBytes, k.off);
+      if (!sk || sk.length < 2) continue;
+      const algKids = derChildren(certBytes, sk[0].off);
+      if (!algKids || !algKids.length) continue;
+      const oid = derRead(certBytes, algKids[0].off);
+      if (!oid || oid.tag !== 0x06 || oid.len !== OID_RSA.length) continue;
+      let match = true;
+      for (let i = 0; i < OID_RSA.length; i++) {
+        if (certBytes[oid.contentOff + i] !== OID_RSA[i]) { match = false; break; }
+      }
+      if (!match) continue;
+      const bs = derRead(certBytes, sk[1].off);
+      if (!bs || bs.tag !== 0x03) continue;
+      const t = derRead(certBytes, k.off);
+      return certBytes.slice(k.off, k.off + t.totalLen);
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+let certCache = { at: 0, data: null };
+async function getGoogleCerts() {
+  if (certCache.data && Date.now() - certCache.at < 3600e3) return certCache.data;
+  const r = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com');
+  if (!r.ok) throw new Error('certs');
+  const data = await r.json();
+  certCache = { at: Date.now(), data };
+  return data;
+}
+
+/* WebCrypto llama al algoritmo RSA de dos formas según el entorno
+   ('RSASSA-PKCS1-v15' en navegadores/Workers, 'RSASSA-PKCS1-v1_5' en node).
+   Se prueba con ambos para no depender del entorno. */
+const RSA_NAMES = ['RSASSA-PKCS1-v15', 'RSASSA-PKCS1-v1_5'];
+async function importRsaKey(spkiBuf) {
+  let last = null;
+  for (const name of RSA_NAMES) {
+    try {
+      const key = await crypto.subtle.importKey(
+        'spki', spkiBuf, { name, hash: 'SHA-256' }, false, ['verify']);
+      return { key, name };
+    } catch (e) { last = e; }
+  }
+  throw last;
+}
+function rsaVerify(k, sig, data) {
+  return crypto.subtle.verify({ name: k.name, hash: 'SHA-256' }, k.key, sig, data);
+}
+
+/* Verifica un Firebase ID token. Devuelve {ok:true, sub} o {ok:false, reason}.
+   fetchCerts es inyectable para pruebas. */
+async function verifyFirebaseIdToken(idToken, projectId, fetchCerts) {
+  try {
+    const parts = String(idToken || '').split('.');
+    if (parts.length !== 3) return { ok: false, reason: 'formato' };
+    const header = JSON.parse(b64urlToString(parts[0]));
+    const payload = JSON.parse(b64urlToString(parts[1]));
+    if (header.alg !== 'RS256' || !header.kid) return { ok: false, reason: 'alg' };
+    const now = Math.floor(Date.now() / 1000);
+    if (!payload.sub || typeof payload.sub !== 'string') return { ok: false, reason: 'sub' };
+    if (payload.aud !== projectId) return { ok: false, reason: 'aud' };
+    if (payload.iss !== 'https://securetoken.google.com/' + projectId) return { ok: false, reason: 'iss' };
+    if (typeof payload.exp !== 'number' || payload.exp < now - 60) return { ok: false, reason: 'exp' };
+    if (payload.iat && payload.iat > now + 60) return { ok: false, reason: 'iat' };
+    const certs = await (fetchCerts || getGoogleCerts)();
+    const pem = certs[header.kid];
+    if (!pem) return { ok: false, reason: 'kid' };
+    const spki = derFindSpki(pemToDer(pem));
+    if (!spki) return { ok: false, reason: 'spki' };
+    let k;
+    try { k = await importRsaKey(spki.slice().buffer); }
+    catch (e) { return { ok: false, reason: 'llave' }; }
+    const sig = b64urlToBytes(parts[2]);
+    const data = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+    const valid = await rsaVerify(k, sig, data);
+    if (!valid) return { ok: false, reason: 'firma' };
+    return { ok: true, sub: payload.sub };
+  } catch (e) {
+    return { ok: false, reason: 'excepcion' };
+  }
+}
+
+async function checkRateLimit(env, ip) {
+  if (!ip) return true;
+  const k = 'rl:' + await sha256Hex('trial|' + ip);
+  const n = parseInt(await env.SUBS.get(k) || '0', 10) || 0;
+  if (n >= 30) return false;
+  await env.SUBS.put(k, String(n + 1), { expirationTtl: 3600 });
+  return true;
 }
 
 function timingSafeEqual(a, b) {
@@ -49,9 +210,48 @@ function planFromAmount(cents) {
   return 'mensual'; // 200
 }
 
+/* Duración de la prueba gratis: 30 días (la usa /trial). */
+const TRIAL_MS = 30 * 86400000;
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+
+    // Preflight CORS para las llamadas POST desde el navegador
+    if (req.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
+    // ---- Prueba gratis por cuenta de Google (la app llama aquí) ----
+    // POST /trial {idToken} -> {ok, trialUsed, trialStart, trialExpiresAt, trialActive, trialExpired}
+    // El servidor es la autoridad: una cuenta = una prueba, para siempre.
+    // El reingreso es idempotente: devuelve la fecha original y dice si la
+    // prueba sigue activa, para no bloquear a quien cambia de teléfono.
+    if (url.pathname === '/trial' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return json({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const v = await verifyFirebaseIdToken(
+        body && body.idToken, env.FB_PROJECT || 'la-cuota');
+      if (!v.ok) return json({ ok: false, reason: v.reason }, 401);
+      const key = 'trial:g:' + await sha256Hex(v.sub);
+      const rec = await env.SUBS.get(key, 'json');
+      const now = Date.now();
+      if (rec && rec.trialStart) {
+        const trialExpiresAt = rec.trialStart + TRIAL_MS;
+        const trialActive = now < trialExpiresAt;
+        return json({ ok: true, trialUsed: true, trialStart: rec.trialStart,
+          trialExpiresAt: trialExpiresAt, trialActive: trialActive,
+          trialExpired: !trialActive });
+      }
+      const ts = now;
+      await env.SUBS.put(key, JSON.stringify({ trialStart: ts, createdAt: ts }));
+      return json({ ok: true, trialUsed: false, trialStart: ts,
+        trialExpiresAt: ts + TRIAL_MS, trialActive: true, trialExpired: false });
+    }
 
     // ---- Verificación de suscripción (la app llama aquí) ----
     if (url.pathname === '/sub' && req.method === 'GET') {
@@ -168,12 +368,19 @@ export default {
   }
 };
 
+function corsHeaders() {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-headers': 'content-type',
+  };
+}
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: {
-      'content-type': 'application/json',
-      'access-control-allow-origin': '*',
-    },
+    headers: Object.assign({ 'content-type': 'application/json' }, corsHeaders()),
   });
 }
+
+/* Exportadas para las pruebas (node). */
+export { verifyFirebaseIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey };
