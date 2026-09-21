@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eliminar mi cuenta — La Cuota</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#ffffff;color:#1c1c1e;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.65}
+  .wrap{max-width:640px;margin:0 auto;padding:32px 20px 64px}
+  header{border-bottom:3px solid #1a7f4b;padding-bottom:20px;margin-bottom:28px}
+  header .brand{font-size:26px;font-weight:800;color:#1a7f4b;letter-spacing:-.5px}
+  header .brand small{display:block;font-size:13px;font-weight:500;color:#6e6e73;letter-spacing:0}
+  h1{font-size:24px;margin:6px 0 4px}
+  h2{font-size:18px;color:#1a7f4b;margin:28px 0 10px}
+  p,li{font-size:15.5px}
+  ul{padding-left:22px}
+  li{margin-bottom:6px}
+  .card{background:#f5f5f7;border-radius:14px;padding:20px;margin:20px 0}
+  label{display:block;font-size:14px;font-weight:600;margin:14px 0 6px}
+  input{width:100%;padding:12px 14px;font-size:16px;border:1px solid #d9d9de;border-radius:10px}
+  input:focus{outline:2px solid #1a7f4b;border-color:#1a7f4b}
+  button{background:#1a7f4b;color:#fff;border:none;border-radius:12px;padding:14px 22px;font-size:16px;font-weight:700;width:100%;margin-top:20px;cursor:pointer}
+  button:hover{background:#156b3f}
+  .nota{background:#fff8e6;border:1px solid #f0d98c;border-radius:10px;padding:12px 16px;font-size:14px;margin:18px 0}
+  .contacto{background:#e7f6ec;border-radius:12px;padding:16px 18px;margin:18px 0;font-size:15px}
+  .contacto a{color:#1a7f4b;font-weight:700}
+  .pendiente{display:inline-block;background:#fff3cd;border:1px solid #e0b64f;color:#7a5c00;font-size:12px;font-weight:700;border-radius:6px;padding:2px 8px;margin-left:8px;vertical-align:middle}
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid #e4e4e9;color:#8e8e93;font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">La Cuota<small>Las cuotas de tu grupo, sin libreta.</small></div>
+</header>
+
+<h1>Solicitar la eliminación de mi cuenta</h1>
+<p>Si ya no quieres usar La Cuota, puedes pedir que borremos tu cuenta y tus datos personales. Es tu derecho y no tiene costo.</p>
+
+<h2>Qué se borra</h2>
+<ul>
+  <li>Tu cuenta de acceso (la sesión vinculada a tu correo de Google).</li>
+  <li>Tus datos personales: nombre, correo electrónico y foto de perfil.</li>
+  <li>Los grupos donde eres el único administrador, si así lo solicitas en el mensaje.</li>
+</ul>
+<p>Los registros de pagos de grupos compartidos con otros miembros se conservan de forma anónima (sin tu nombre ni tu correo) para no romper el historial del grupo, salvo que pidas expresamente su borrado total en tu mensaje.</p>
+
+<h2>En qué plazo</h2>
+<p>Procesamos las solicitudes de eliminación en un <strong>plazo máximo de 30 días</strong> desde que la recibimos. Te escribiremos al mismo correo para confirmarte cuando el borrado esté completo.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Haz tu solicitud</h2>
+  <p style="font-size:14.5px;color:#6e6e73">Completa tus datos y pulsa el botón: se abrirá tu aplicación de correo con el mensaje ya redactado. Solo tienes que enviarlo.</p>
+  <form id="formEliminar" onsubmit="return enviarSolicitud(event)">
+    <label for="nombre">Tu nombre</label>
+    <input id="nombre" type="text" autocomplete="name" placeholder="Nombre con el que usas La Cuota" required>
+    <label for="email">Correo de tu cuenta de La Cuota</label>
+    <input id="email" type="email" autocomplete="email" placeholder="tucorreo@ejemplo.com" required>
+    <button type="submit">Enviar solicitud de eliminación</button>
+  </form>
+</div>
+
+<div class="nota"><strong>¿Prefieres escribirnos directamente?</strong> Envía un correo a <a href="mailto:soporte@lacuota.org?subject=Solicitud%20de%20eliminaci%C3%B3n%20de%20cuenta%20%E2%80%94%20La%20Cuota">soporte@lacuota.org</a> con el asunto <em>"Solicitud de eliminación de cuenta — La Cuota"</em> e indícanos el correo de tu cuenta.</div>
+
+<div class="contacto">
+  Correo de contacto: <a href="mailto:soporte@lacuota.org">soporte@lacuota.org</a>
+</div>
+
+<footer>La Cuota · lacuota.org · Eliminación de cuenta y datos</footer>
+
+</div>
+
+<script>
+function enviarSolicitud(e){
+  e.preventDefault();
+  var nombre = document.getElementById('nombre').value.trim();
+  var email = document.getElementById('email').value.trim();
+  var asunto = 'Solicitud de eliminación de cuenta — La Cuota';
+  var cuerpo = 'Hola equipo de La Cuota:\n\n'
+    + 'Solicito la eliminación de mi cuenta y de mis datos personales.\n\n'
+    + 'Nombre: ' + nombre + '\n'
+    + 'Correo de mi cuenta: ' + email + '\n\n'
+    + 'Entiendo que el borrado se procesará en un plazo máximo de 30 días '
+    + 'y que recibiré una confirmación por este mismo correo.\n\n'
+    + 'Gracias.';
+  window.location.href = 'mailto:soporte@lacuota.org'
+    + '?subject=' + encodeURIComponent(asunto)
+    + '&body=' + encodeURIComponent(cuerpo);
+  return false;
+}
+</script>
+</body>
+</html>
