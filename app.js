@@ -211,6 +211,9 @@ function pkceChallenge(verifier){
 function googleLogin(){
   var b = document.getElementById('verGoogle'); if(b) b.disabled = true;
   verStep('Abriendo Google\u2026');
+  /* El usuario inicia sesi\u00f3n a prop\u00f3sito: borrar la marca de "no quiero
+     sesi\u00f3n" que dej\u00f3 el cierre anterior, para que el c\u00f3digo se canjee al volver. */
+  S.expectNoSession = false; save();
   var verifier = pkceRandom(64);
   var state = pkceRandom(32);
   try{
@@ -1541,7 +1544,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 65;
+var APP_V = 66;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
