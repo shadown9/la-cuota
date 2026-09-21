@@ -407,6 +407,7 @@ export default {
           headers: { 'content-type': 'application/x-www-form-urlencoded' },
           body: 'code=' + encodeURIComponent(code) +
                 '&client_id=' + encodeURIComponent(GOOGLE_OAUTH_CLIENT_ID) +
+                '&client_secret=' + encodeURIComponent(env.GOOGLE_CLIENT_SECRET || '') +
                 '&code_verifier=' + encodeURIComponent(verifier) +
                 '&redirect_uri=' + encodeURIComponent(redirectUri) +
                 '&grant_type=authorization_code',
