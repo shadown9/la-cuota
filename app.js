@@ -358,6 +358,7 @@ function showTextSheet(txt){
 function renderHome(){
   nubeUnwatch();
   show('v-home');
+  mostrarInstalar();
   var ids=Object.keys(S.groups);
   var list=$('groupList'); list.innerHTML='';
   $('homeEmpty').hidden = ids.length>0;
@@ -1337,6 +1338,47 @@ function route(){
   if(!S.onboarded && Object.keys(S.groups).length===0){ startOnboarding(); return; }
   renderHome();
 }
+/* ---------- INSTALAR LA APP ----------
+   Chrome ya no muestra su aviso automático de instalación como antes: ahora
+   el "Instalar app" vive escondido en el menú del navegador y casi nadie lo
+   ve. Por eso la app trae su propio banner: captura beforeinstallprompt y
+   ofrece el botón Instalar. En iPhone no existe ese evento, así que se
+   explica cómo hacerlo a mano desde Safari. */
+var __instalarEvt=null;
+function appInstalada(){
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+         window.navigator.standalone===true;
+}
+function esIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent||''); }
+function instalarDismissed(){
+  try{ return localStorage.getItem('lacuota_noinstalar')==='1'; }catch(e){ return false; }
+}
+function mostrarInstalar(){
+  var b=$('installBanner'); if(!b) return;
+  b.hidden = appInstalada() || (!__instalarEvt && !esIOS()) || instalarDismissed();
+}
+function instalarApp(){
+  if(__instalarEvt){
+    __instalarEvt.prompt();
+    __instalarEvt.userChoice.then(function(){ __instalarEvt=null; mostrarInstalar(); }).catch(function(){});
+    return;
+  }
+  if(esIOS()){
+    openSheet('<h3>Instalar La Cuota</h3>'+
+      '<p class="fine" style="text-align:left">En iPhone: toca <b>Compartir</b> en Safari y elige <b>"Añadir a pantalla de inicio"</b>. Así la abres como una app, sin el navegador.</p>'+
+      '<button class="btn-primary btn-block" id="instOk">Entendido</button>');
+    on('instOk','click',closeSheet);
+  }
+}
+window.addEventListener('beforeinstallprompt', function(e){
+  e.preventDefault(); __instalarEvt=e; mostrarInstalar();
+});
+window.addEventListener('appinstalled', function(){ __instalarEvt=null; mostrarInstalar(); });
+on('installGo','click',instalarApp);
+on('installNo','click',function(){
+  try{ localStorage.setItem('lacuota_noinstalar','1'); }catch(e){}
+  var b=$('installBanner'); if(b) b.hidden=true;
+});
 if('serviceWorker' in navigator){
   window.addEventListener('load', function(){
     /* updateViaCache:'none': el chequeo de actualización IGNORA la caché HTTP.
@@ -1350,7 +1392,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 47;
+var APP_V = 48;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

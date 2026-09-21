@@ -481,6 +481,9 @@ t('existe la pantalla de verificación en el HTML',
 t('v-verify está en la lista de vistas', /'v-verify'/.test(appJs));
 t('v-verify vende la app antes de pedir Google (qué es + beneficios)',
   /verify-perks/.test(indexHtml) && /organiza el dinero de tu grupo/.test(indexHtml));
+t('banner de instalación existe en el inicio', /id="installBanner"/.test(indexHtml));
+t('app.js captura beforeinstallprompt para el botón Instalar', /beforeinstallprompt/.test(appJs));
+t('iPhone tiene instrucciones manuales de instalación', /Añadir a pantalla de inicio/.test(appJs));
 t('Firebase Auth se carga (compat, sin bloquear si no hay red)',
   /firebase-app-compat\.js/.test(indexHtml) && /firebase-auth-compat\.js/.test(indexHtml));
 t('la verificación habla con el worker (/trial)', /\/trial/.test(appJs) && /TRIAL_URL/.test(appJs));

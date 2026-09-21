@@ -201,6 +201,17 @@ input:focus{border-bottom-color:var(--ink)}
 .trialbanner{background:var(--soft);border-radius:var(--radius);padding:14px 16px;
   font-size:15px;margin-bottom:16px;color:var(--ink)}
 
+/* Banner para instalar la app */
+.installbanner{background:#eef4ff;border:1px solid #d7e5ff;border-radius:var(--radius);
+  padding:12px 12px 12px 14px;font-size:14px;margin-bottom:16px;color:var(--ink);
+  display:flex;align-items:center;gap:10px}
+.installbanner[hidden]{display:none}
+.ib-txt{flex:1;line-height:1.4}
+.ib-btn{background:#1c1c1e;color:#fff;border:none;border-radius:10px;
+  padding:9px 14px;font-size:14px;font-weight:700;cursor:pointer;flex:none}
+.ib-x{background:none;border:none;font-size:20px;color:#8e8e93;cursor:pointer;
+  padding:4px 6px;flex:none;line-height:1}
+
 /* FAQ */
 .fitem{border-bottom:1px solid var(--line)}
 .fq{width:100%;background:none;border:none;display:flex;justify-content:space-between;align-items:center;
