@@ -174,6 +174,13 @@ function esInstalada(){
    sistema que nunca devuelve la sesión, y el redirect pierde su estado al
    volver. Devuelve el token de Google (JWT) para canjearlo por la sesión
    de Firebase con signInWithCredential. */
+/* Cuánto se espera a Google antes de rendirse: si la ventanita no se abre
+   en este tiempo (Google la suprime tras varios intentos seguidos), no
+   tiene sentido dejar la puerta colgada en "Verificando tu cuenta…".
+   Si la ventanita SÍ se mostró (el usuario está eligiendo), la espera se
+   extiende para no castigar al que elige despacio. */
+var FEDCM_ESPERA_MS = 15000;
+var FEDCM_ESPERA_ELIGIENDO_MS = 60000;
 function fedcmToken(){
   return new Promise(function(resolve, reject){
     var g = null;
@@ -181,12 +188,21 @@ function fedcmToken(){
     if(!g || !g.accounts || !g.accounts.id){
       reject({code:'fedcm/no-disponible'}); return;
     }
-    var done = false;
+    var done = false, espera = null;
+    function armarEspera(ms){
+      if(espera){ try{ clearTimeout(espera); }catch(e){} }
+      espera = setTimeout(function(){ fin({code:'fedcm/tiempo-agotado'}); }, ms);
+    }
     function fin(err, tok){
       if(done) return; done = true;
+      if(espera){ try{ clearTimeout(espera); }catch(e){} espera = null; }
       try{ g.accounts.id.cancel(); }catch(e){}
       if(err) reject(err); else resolve(tok);
     }
+    /* Red de seguridad: si la librería se queda muda, no colgar la puerta.
+       Se arma ANTES de pedir la ventanita: si la ventanita se muestra, la
+       espera se extiende (el aviso puede llegar en el mismo instante). */
+    armarEspera(FEDCM_ESPERA_MS);
     try{
       g.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
@@ -198,16 +214,20 @@ function fedcmToken(){
       });
       g.accounts.id.prompt(function(notif){
         /* Este aviso llega cuando la ventanita no se mostró (sin sesión en
-           el navegador, pausa de Chrome, etc.): ahí toca usar otro método. */
+           el navegador, pausa de Chrome, etc.): ahí toca usar otro método.
+           Si la ventanita SÍ se mostró, el usuario está eligiendo y la
+           espera se extiende. */
         try{
+          if(notif && notif.isDisplayMoment && notif.isDisplayMoment()){
+            armarEspera(FEDCM_ESPERA_ELIGIENDO_MS);
+            return;
+          }
           if(notif && (notif.isSkippedMoment() || notif.isDismissedMoment())){
             fin({code:'fedcm/omitido'});
           }
         }catch(e){}
       });
     }catch(e){ fin({code:'fedcm/no-disponible'}); }
-    /* Red de seguridad: si la librería se queda muda, no colgar la puerta. */
-    setTimeout(function(){ fin({code:'fedcm/tiempo-agotado'}); }, 90000);
   });
 }
 var FB_AUTH = {
@@ -249,6 +269,11 @@ var FB_AUTH = {
       return auth.signInWithCredential(credencial);
     }).catch(function(err){
       var code = (err && err.code) || '';
+      /* Si el usuario cerró la ventanita, no hay nada que reintentar por
+         otro camino: se propaga tal cual para que la puerta quede en
+         silencio (cerrar la ventanita no es un error). Cualquier otro
+         fallo de FedCM cae al popup clásico. */
+      if(code === 'fedcm/omitido') throw err;
       if(code.indexOf('fedcm/') === 0) return viaPopup();
       throw err;
     });
@@ -327,6 +352,8 @@ function showVerify(){
   verNext = verNext || null;
   var m = document.getElementById('verMsg');
   if(m){ m.hidden = true; m.textContent=''; }
+  var va = document.getElementById('verAlt');
+  if(va) va.hidden = true;
   var b = document.getElementById('verGoogle');
   if(b) b.disabled = false;
   /* Versión visible en letra pequeña: si algo falla en un teléfono,
@@ -421,25 +448,42 @@ function cuentaVerificar(userObj){
       save();
       var next = verNext; verNext = null;
       verStep(null);
+      /* Si se entró desde el navegador por el segundo camino, avisar que
+         ya puede volver a la app instalada (la sesión es compartida). */
+      var desdeApp = false;
+      try{ desdeApp = sessionStorage.getItem('lacuota_desdeApp')==='1'; sessionStorage.removeItem('lacuota_desdeApp'); }catch(e){}
+      var vuelve = (desdeApp && !esInstalada()) ? ' Vuelve a la app de La Cuota.' : '';
       if(pruebaActiva){
-        toast(res.trialUsed ? 'Sesión verificada. Tu prueba sigue activa.'
-                            : 'Prueba activada: 30 días gratis.');
+        toast((res.trialUsed ? 'Sesión verificada. Tu prueba sigue activa.'
+                            : 'Prueba activada: 30 días gratis.') + vuelve);
         if(next) next(); else renderHome();
       }else if(res.trialExpired){
-        toast('Tu prueba gratis terminó. Activa tu suscripción para seguir.');
+        toast('Tu prueba gratis terminó. Activa tu suscripción para seguir.' + vuelve);
         renderPay();
       }else{
-        toast('Esta cuenta ya usó su prueba gratis. Activa tu suscripción para seguir.');
+        toast('Esta cuenta ya usó su prueba gratis. Activa tu suscripción para seguir.' + vuelve);
         renderPay();
       }
     });
   }).catch(function(e){
     var code = (e && e.code) || '';
     var emsg = String((e && e.message) || '');
-    if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
+    if(code === 'fedcm/omitido'){
       /* El usuario cerró la ventanita de Google: no es un error y no se le
          muestra nada. La puerta queda lista para cuando quiera intentarlo. */
       verStep(null);
+      if(b) b.disabled=false;
+    }else if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
+      if(esInstalada()){
+        /* En la app instalada no existe el popup: este código solo llega
+           aquí cuando la ventanita nativa no pudo abrirse (Google la
+           suprime tras varios intentos seguidos). En vez de dejar la
+           puerta colgada, se ofrece el segundo camino. */
+        mostrarViaNavegador();
+      }else{
+        /* En el navegador, cerrar el popup tampoco es un error. */
+        verStep(null);
+      }
       if(b) b.disabled=false;
     }else if(/rechazado/.test(emsg)){
       msg('Google no autorizó esta cuenta para la prueba. Prueba con otra cuenta de Google.', 'rechazado');
@@ -451,6 +495,16 @@ function cuentaVerificar(userObj){
       msg('No se pudo verificar. Revisa tu internet e inténtalo de nuevo.', code || 'red');
     }
   });
+}
+/* Segundo camino para entrar en la app instalada: si la ventanita nativa
+   de Google no se abre (Google la suprime tras varios intentos seguidos),
+   se abre la misma puerta en el navegador, donde el inicio clásico sí
+   funciona. La sesión queda guardada en el origen compartido y al volver
+   a la app ya se está adentro: no hay que hacer nada más. */
+function mostrarViaNavegador(){
+  verStep(null);
+  var w = document.getElementById('verAlt');
+  if(w) w.hidden = false;
 }
 /* Al volver del redirect de Google, completa la verificación. */
 function cuentaVerificarRedirect(){
@@ -1655,7 +1709,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 56;
+var APP_V = 57;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1677,8 +1731,19 @@ if('serviceWorker' in navigator){
   });
 }
 document.addEventListener('visibilitychange', function(){
-  if(!document.hidden) checkAppUpdate();
+  if(!document.hidden){ checkAppUpdate(); reanudarSiVerificado(); }
 });
+/* Si la verificación se completó en el navegador (segundo camino), al
+   volver a la app la puerta ya no tiene nada que pedir: la sesión es
+   compartida por el origen, así que se entra directo. */
+function reanudarSiVerificado(){
+  try{
+    var v = $('v-verify'); if(!v || v.hidden) return;
+    if(L.needsVerify(S)) return;
+    verStep(null);
+    route();
+  }catch(e){}
+}
 setInterval(checkAppUpdate, 5*60*1000);
 /* Si el arranque falla por cualquier motivo, jamás pantalla en blanco:
    se muestra la reparación (los datos siguen guardados) y se pide la
@@ -1695,6 +1760,19 @@ function bootFail(){
   }catch(e){}
 }
 try{
+  /* Si se llegó desde la app instalada ("abrir en el navegador"), se marca
+     para avisar que ya puede volver a la app tras verificar, y se limpia
+     el hash antes de que la puerta lo guarde como enlace pendiente. */
+  try{
+    if(String(location.hash||'')==='#entrar-app'){
+      try{ sessionStorage.setItem('lacuota_desdeApp','1'); }catch(e){}
+      try{
+        if(typeof history!=='undefined' && history && history.replaceState){
+          history.replaceState(null,'',String(location).split('#')[0]);
+        }else{ location.hash = '#'; }
+      }catch(e2){ try{ location.hash='#'; }catch(e3){} }
+    }
+  }catch(e4){}
   /* HTML más viejo que el JS: pedir la versión nueva una sola vez por
      sesión en vez de arrancar degradado en silencio. */
   if(!$('appVer') || !$('setManageSub')){

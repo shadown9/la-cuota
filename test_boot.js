@@ -803,6 +803,24 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     !/Se canceló el inicio de sesión/.test(appJs));
   t('v56: la puerta jamás muestra alarmas en rojo',
     !/#verMsg\{color:#b00020/.test(cssTxt));
+  t('v57: FedCM falla rápido si Google no responde (15s, no 90s)',
+    /var FEDCM_ESPERA_MS = 15000;/.test(appJs) && /var FEDCM_ESPERA_ELIGIENDO_MS = 60000;/.test(appJs)
+    && /armarEspera\(FEDCM_ESPERA_MS\)/.test(appJs));
+  t('v57: si la ventanita se mostró, la espera se extiende (no castiga al que elige despacio)',
+    /isDisplayMoment/.test(appJs) && /armarEspera\(FEDCM_ESPERA_ELIGIENDO_MS\)/.test(appJs));
+  t('v57: si el usuario cierra la ventanita no se reintenta por otro camino',
+    /if\(code === 'fedcm\/omitido'\) throw err;/.test(appJs));
+  t('v57: en la app instalada, si la ventanita no se abre se ofrece entrar desde el navegador',
+    /mostrarViaNavegador\(\)/.test(appJs) && /id="verAlt"/.test(indexHtml)
+    && /id="verAltBtn"[^>]*href="#entrar-app"[^>]*target="_blank"/.test(indexHtml));
+  t('v57: la puerta oculta la vía del navegador al mostrarse de nuevo',
+    /getElementById\('verAlt'\)/.test(appJs));
+  t('v57: al volver a la app tras verificar en el navegador se entra directo',
+    /reanudarSiVerificado\(\)/.test(appJs));
+  t('v57: el arranque consume el marcador #entrar-app',
+    /lacuota_desdeApp/.test(appJs));
+  t('v57: tras verificar desde el navegador se avisa que vuelva a la app',
+    /Vuelve a la app de La Cuota/.test(appJs));
   /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
      devuelve el token sin salir de la página; se canjea por la sesión de
      Firebase y la prueba se verifica con el token del usuario real. */
@@ -1078,11 +1096,114 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     sb.__els['verGoogle']._ev.click();
     setTimeout(function(){
       t('ventanita cerrada: no se muestra ningún mensaje', sb.__els['verMsg'].hidden===true, 'verMsg.hidden='+sb.__els['verMsg'].hidden);
+      t('ventanita cerrada: tampoco se ofrece la vía del navegador (no fue un fallo)', sb.__els['verAlt'].hidden===true, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
       t('ventanita cerrada: el botón queda listo', sb.__els['verGoogle'].disabled===false, 'disabled='+sb.__els['verGoogle'].disabled);
       t('ventanita cerrada: sigue sin verificar', sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
       resolve();
     }, 60);
   }));
+  /* 15x (v57): si Google suprime la ventanita (no llama de vuelta tras
+     varios intentos seguidos), la puerta NO se queda colgada en
+     "Verificando tu cuenta…": falla rápido y ofrece entrar desde el
+     navegador, sin intentar popup ni redirect en la instalada. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    /* El sandbox anula setTimeout por diseño; esta prueba necesita
+       temporizadores reales. La espera de FedCM vive dentro del closure
+       de la app, así que se acorta en el código cargado (el valor real,
+       15s, se verifica en la prueba estática). */
+    sb.setTimeout = setTimeout; sb.clearTimeout = clearTimeout;
+    var appCorto = appJs.replace('var FEDCM_ESPERA_MS = 15000;', 'var FEDCM_ESPERA_MS = 40;');
+    ['logica.js','nube.js'].forEach(function(f){
+      vm.runInContext(fs.readFileSync(path.join(DIR,f),'utf8'), sb, {filename:f});
+    });
+    vm.runInContext(appCorto, sb, {filename:'app.js'});
+    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    var popupCalls = 0, redirectCalls = 0;
+    sb.google = { accounts: { id: {
+      initialize: function(){},
+      prompt: function(cb){ /* Google suprime la ventanita: jamás llama de vuelta */ },
+      cancel: function(){}
+    }}};
+    function FakeProvider(){ this.addScope = function(){}; }
+    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+      return {
+        currentUser: null,
+        signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-blocked'}); },
+        signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
+        signInWithCredential: function(){ return Promise.reject({code:'x'}); }
+      };
+    }};
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      t('ventanita suprimida: no se queda colgada esperando', sb.__els['verStep'].hidden===true, 'verStep.hidden='+sb.__els['verStep'].hidden);
+      t('ventanita suprimida: ofrece entrar desde el navegador', sb.__els['verAlt'].hidden===false, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
+      t('ventanita suprimida: no intenta popup ni redirect en la instalada',
+        popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
+      t('ventanita suprimida: el botón queda habilitado para reintentar',
+        sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
+      t('ventanita suprimida: sigue sin verificar', sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
+      resolve();
+    }, 200);
+  }));
+  /* 15x2 (v57): si la ventanita SÍ se mostró (el usuario está eligiendo),
+     la espera se extiende: a los 70ms (cuando la espera corta ya habría
+     fallado) todavía no hay vía alternativa; cuando se agota la espera
+     extendida, aparece. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    sb.setTimeout = setTimeout; sb.clearTimeout = clearTimeout;
+    var appCorto = appJs
+      .replace('var FEDCM_ESPERA_MS = 15000;', 'var FEDCM_ESPERA_MS = 40;')
+      .replace('var FEDCM_ESPERA_ELIGIENDO_MS = 60000;', 'var FEDCM_ESPERA_ELIGIENDO_MS = 120;');
+    ['logica.js','nube.js'].forEach(function(f){
+      vm.runInContext(fs.readFileSync(path.join(DIR,f),'utf8'), sb, {filename:f});
+    });
+    vm.runInContext(appCorto, sb, {filename:'app.js'});
+    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    var momento = {isDisplayMoment:function(){return true;}, isSkippedMoment:function(){return false;}, isDismissedMoment:function(){return false;}};
+    sb.google = { accounts: { id: {
+      initialize: function(){},
+      prompt: function(cb){ cb(momento); /* la ventanita se mostró; el usuario elige... y no elige */ },
+      cancel: function(){}
+    }}};
+    function FakeProvider(){ this.addScope = function(){}; }
+    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+      return {
+        currentUser: null,
+        signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
+        signInWithRedirect: function(){ return Promise.resolve(); },
+        signInWithCredential: function(){ return Promise.reject({code:'x'}); }
+      };
+    }};
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      t('eligiendo: la espera corta no corta al que está eligiendo', sb.__els['verAlt'].hidden===true, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
+    }, 70);
+    setTimeout(function(){
+      t('eligiendo: agotada la espera extendida, ofrece la vía del navegador', sb.__els['verAlt'].hidden===false, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
+      t('eligiendo: no se queda colgada esperando', sb.__els['verStep'].hidden===true, 'verStep.hidden='+sb.__els['verStep'].hidden);
+      resolve();
+    }, 260);
+  }));
+  /* 15y (v57): el marcador #entrar-app se consume al arrancar: marca la
+     sesión para avisar que vuelva a la app, sin guardarlo como enlace. */
+  (function(){
+    var sb = psb({ids: idsFromHtml(indexHtml), hash:'#entrar-app'});
+    loadApp(sb);
+    t('#entrar-app: marca la sesión para avisar al volver',
+      sb.sessionStorage.getItem('lacuota_desdeApp')==='1',
+      String(sb.sessionStorage.getItem('lacuota_desdeApp')));
+    t('#entrar-app: no se guarda como enlace pendiente',
+      sb.sessionStorage.getItem('lacuota_verHash')!=='#entrar-app',
+      String(sb.sessionStorage.getItem('lacuota_verHash')));
+  })();
   /* 15i: al verificar, la fecha local se alinea con la del servidor
      (autoridad), sin importar si había prueba local. */
   t('al verificar se adopta la fecha del servidor',
