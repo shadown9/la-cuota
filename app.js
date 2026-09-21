@@ -1654,7 +1654,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 71;
+var APP_V = 72;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1669,11 +1669,18 @@ function checkAppUpdate(){
     }).catch(function(){});
 }
 if('serviceWorker' in navigator){
+  /* Limpia la marca de recarga al arrancar: si quedó de una sesión anterior
+     en segundo plano, impediría detectar futuras actualizaciones. */
+  try{ sessionStorage.removeItem('lacuota_upd'); }catch(e){}
   navigator.serviceWorker.addEventListener('controllerchange', function(){
     if(sessionStorage.getItem('lacuota_upd')) return;
     sessionStorage.setItem('lacuota_upd','1');
     location.reload();
   });
+  /* Revisa actualizaciones del SW al arrancar, sin esperar checkAppUpdate. */
+  navigator.serviceWorker.getRegistration().then(function(reg){
+    if(reg) reg.update().catch(function(){});
+  }).catch(function(){});
 }
 document.addEventListener('visibilitychange', function(){
   if(!document.hidden){ checkAppUpdate(); reanudarSiVerificado(); checkReminders(); }
