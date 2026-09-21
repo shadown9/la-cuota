@@ -47,7 +47,7 @@ function nubePushAll(){
         if(remote && remote.meta){
           var m=L.mergeGroup(local, remote);
           state=m.state;
-          if(m.changed){ L.applySnapshot(S, gid, m.state); persist(); if(gid===curGid) renderGroup(); }
+          if(m.changed){ L.applySnapshot(S, gid, m.state); persist(); if(gid===curGid && enVistaGrupo(gid)) renderGroup(); }
         }
         return CuotaNube.publicar(gid, state);
       }).catch(function(){});
@@ -71,10 +71,15 @@ function nubeWatch(gid){
     // La nube avisa que algo cambió: cancelar cualquier subida pendiente
     // (puede traer datos viejos) y traer todo para fusionar en silencio.
     clearTimeout(nubeT);
-    nubePull(gid, function(changed){ if(changed && curGid===gid) renderGroup(); });
+    nubePull(gid, function(changed){ if(changed && curGid===gid && enVistaGrupo(gid)) renderGroup(); });
   });
 }
 function nubeUnwatch(){ if(nubeUnsub){ try{ nubeUnsub(); }catch(e){} nubeUnsub=null; } }
+/* Devuelve true solo si el usuario está ahora mismo en la vista principal
+   del grupo (no en una sub-vista como miembros, historial o ajustes).
+   Impide que las actualizaciones en segundo plano (Firebase) interrumpan
+   al usuario mientras está editando en una sub-vista. */
+function enVistaGrupo(gid){ return (location.hash||'')==='#/g/'+gid; }
 
 /* ---------- utilidades ---------- */
 function $(id){ return document.getElementById(id); }
@@ -602,7 +607,7 @@ function openGroup(gid){
   curGid=gid;
   curMonth=S.ui['m_'+gid] || L.periodKey(new Date(), g);
   renderGroup();
-  nubePull(gid, function(changed){ if(changed && curGid===gid) renderGroup(); });
+  nubePull(gid, function(changed){ if(changed && curGid===gid && enVistaGrupo(gid)) renderGroup(); });
   nubeWatch(gid);
 }
 
@@ -1840,7 +1845,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 79;
+var APP_V = 80;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2086,7 +2091,7 @@ function migrarLegados(){
       delete S.groups[gid];
       if(curGid===gid) curGid=nuevo;
       save();
-      nubePull(nuevo, function(changed){ if(changed && curGid===nuevo) renderGroup(); });
+      nubePull(nuevo, function(changed){ if(changed && curGid===nuevo && enVistaGrupo(nuevo)) renderGroup(); });
     });
   });
 }
@@ -2102,7 +2107,7 @@ if(nubeLista()){
   migrarLegados();
   Object.keys(S.groups).forEach(function(gid){
     nubePull(gid, function(changed){
-      if(changed && gid===curGid) renderGroup();
+      if(changed && gid===curGid && enVistaGrupo(gid)) renderGroup();
       nubePushSoon();
     });
   });
