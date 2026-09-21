@@ -778,8 +778,11 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /if\(instalada\) return Promise\.reject\(\{code:'auth\/popup-closed-by-user'\}\)/.test(appJs));
   t('v-verify muestra la versión en letra pequeña (verVer)',
     /id="verVer"/.test(indexHtml) && /getElementById\('verVer'\)/.test(appJs));
-  t('v53: Ajustes tiene "Cerrar sesión" (setSignOut)',
-    /id="setSignOut"/.test(indexHtml) && /on\('setSignOut', 'click', cerrarSesion\)/.test(appJs));
+  t('v54: el inicio tiene "Cerrar sesión" junto a las demás opciones (homeSignOut)',
+    /id="homeSignOut"/.test(indexHtml) && /on\('homeSignOut', 'click', cerrarSesion\)/.test(appJs)
+    && !/id="setSignOut"/.test(indexHtml));
+  t('v54: Ajustes ya no tiene "Cerrar sesión" (no es por grupo)',
+    !/setSignOut/.test(appJs));
   /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
      devuelve el token sin salir de la página; se canjea por la sesión de
      Firebase y la prueba se verifica con el token del usuario real. */
@@ -907,8 +910,8 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* 15r (v53): "Cerrar sesión" en Ajustes cierra la sesión de Google y
-     vuelve a mostrar la puerta, sin tocar los grupos ni los pagos. */
+  /* 15s (v54): "Cerrar sesión" está en el inicio (no en Ajustes): cierra la
+     sesión de Google y vuelve a mostrar la puerta, sin tocar grupos ni pagos. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml),
       seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
@@ -917,7 +920,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
       return { signOut:function(){ signOutCalls++; return Promise.resolve(); } };
     }};
-    sb.__els['setSignOut']._ev.click();
+    sb.__els['homeSignOut']._ev.click();
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
       t('cerrar sesión: llamó a signOut de Firebase', signOutCalls===1, signOutCalls+' llamadas');

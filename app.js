@@ -1424,7 +1424,7 @@ on('pdBack', 'click', openHistory);
 on('setBack', 'click', renderGroup);
 on('setSave', 'click', saveSettings);
 on('setManageSub', 'click', manageSub);
-on('setSignOut', 'click', cerrarSesion);
+on('homeSignOut', 'click', cerrarSesion);
 on('setDelete', 'click', function(){
   var b=$('setDelete'), g=S.groups[curGid];
   if(b.dataset.confirm==='1'){
@@ -1595,7 +1595,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 53;
+var APP_V = 54;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
