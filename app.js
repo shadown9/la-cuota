@@ -267,16 +267,20 @@ function cuentaVerificar(userObj){
       return r.json();
     }).then(function(res){
       if(!res || !res.ok) throw new Error('rechazado');
-      S.googleOk = true;
-      S.googleSub = '';
-      S.googleTrialStart = res.trialStart || Date.now();
-      if(!S.trialStart) S.trialStart = S.googleTrialStart;
-      save();
       /* El worker nuevo distingue el reingreso con la prueba aún activa
          (trialActive) de la prueba ya vencida (trialExpired). Con el worker
          viejo solo llega trialUsed y se conserva el trato anterior. */
       var sabeEstado = (res.trialActive === true) || (res.trialExpired === true);
       var pruebaActiva = sabeEstado ? res.trialActive : !res.trialUsed;
+      S.googleOk = true;
+      S.googleSub = '';
+      S.googleTrialStart = res.trialStart || Date.now();
+      /* El servidor es la autoridad de la prueba de esta cuenta: al
+         verificar, la fecha local se alinea con la del servidor. El
+         servidor nunca extiende una prueba (en el reingreso devuelve la
+         fecha original), así que alinear no regala días. */
+      S.trialStart = S.googleTrialStart;
+      save();
       var next = verNext; verNext = null;
       if(pruebaActiva){
         toast(res.trialUsed ? 'Sesión verificada. Tu prueba sigue activa.'
@@ -310,6 +314,14 @@ function cuentaVerificarRedirect(){
       var gid = null;
       try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
       if(gid) verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
+      else{
+        /* Puerta al arrancar: si venía con un enlace (tesorero/miembro,
+           pago-ok, etc.), retomarlo tras verificar. */
+        var vh = null;
+        try{ vh = sessionStorage.getItem('lacuota_verHash'); sessionStorage.removeItem('lacuota_verHash'); }catch(e){}
+        if(vh){ try{ if((location.hash||'')!==vh) location.hash = vh; }catch(e2){}
+          verNext = function(){ route(); }; }
+      }
       cuentaVerificar(result.user);
     }
   }).catch(function(){});
@@ -1305,7 +1317,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 43;
+var APP_V = 44;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1366,7 +1378,20 @@ try{
   }
   bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
   cuentaVerificarRedirect(); /* completa el login de Google al volver del redirect */
-  route();
+  /* La prueba exige cuenta de Google verificada en el servidor (una por
+     cuenta): quien tenga grupos sin verificar ve la pantalla de
+     verificación al arrancar, antes de entrar. El enlace con el que venía
+     (si traía uno) se guarda para retomarlo tras verificar. */
+  if(L.needsVerify(S)){
+    /* Solo se guarda, nunca se borra aquí: al volver del redirect de
+       Google el hash viene vacío y borrarlo perdería el enlace pendiente.
+       Lo consume cuentaVerificarRedirect() tras verificar. */
+    var _vh = location.hash || '';
+    try{ if(_vh && _vh !== '#') sessionStorage.setItem('lacuota_verHash', _vh); }catch(e){}
+    showVerify();
+  }else{
+    route();
+  }
   paintVer();
   checkAppUpdate();
   window.__lacuotaBooted = true;

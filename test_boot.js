@@ -375,7 +375,7 @@ t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTi
     t('sin grupos: no se inventa prueba', sb3.__lacuotaSub.trial()===0);
     /* 12a: sin suscripción activa → el botón lleva a suscribirse */
     var sb4 = psb({ids: idsFromHtml(indexHtml), seed: seed({
-      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-5*DAY, payActive:false })});
+      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-5*DAY, payActive:false, googleOk:true })});
     loadApp(sb4);
     t('etiqueta del botón sin pagar: "Suscribirme"',
       sb4.__els.btnManageSub.textContent==='Suscribirme', sb4.__els.btnManageSub.textContent);
@@ -398,7 +398,7 @@ t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTi
       urls.length===1 && /\/portal\?email=/.test(urls[0]) && sb5.__els['v-pay'].hidden===true);
     /* 12c: prueba vencida → título de prueba terminada */
     var sb6 = psb({ids: idsFromHtml(indexHtml), seed: seed({
-      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-31*DAY, payActive:false })});
+      groups:{g1:{id:'g1',name:'T'}}, trialStart: now-31*DAY, payActive:false, googleOk:true })});
     loadApp(sb6);
     sb6.__lacuotaSub.manage();
     t('prueba vencida: el título dice que terminó',
@@ -516,7 +516,8 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     t('con grupos y sin nada: necesita verificar', a.__lacuotaSub.necesitaVerificar()===true);
     var b = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1'}}, trialStart: 123})});
     loadApp(b);
-    t('con prueba arrancada: no pide verificar', b.__lacuotaSub.necesitaVerificar()===false);
+    t('con prueba local pero sin verificar: SÍ pide verificar (v44: la puerta es para todos, no solo nuevos)',
+      b.__lacuotaSub.necesitaVerificar()===true);
     var c = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1'}}, payActive:true})});
     loadApp(c);
     t('pagando: no pide verificar', c.__lacuotaSub.necesitaVerificar()===false);
@@ -600,6 +601,46 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       }, 60);
     }));
   });
+  /* 15f: la puerta sale AL ARRANCAR para usuarios antiguos con prueba
+     local pero sin verificar (v44): ven v-verify en vez del inicio. */
+  (function(){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, trialStart: 123})});
+    loadApp(sb);
+    t('arranque sin verificar: muestra v-verify',
+      sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
+    t('arranque sin verificar: no muestra el inicio',
+      sb.__els['v-home'].hidden===true, 'v-home.hidden='+sb.__els['v-home'].hidden);
+  })();
+  /* 15g: con la cuenta verificada, el arranque entra directo (sin puerta). */
+  (function(){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, trialStart: 123, googleOk:true})});
+    loadApp(sb);
+    t('arranque verificado: no muestra v-verify',
+      sb.__els['v-verify'].hidden===true, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
+    t('arranque verificado: muestra el inicio',
+      sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+  })();
+  /* 15h: si venía con un enlace, la puerta lo guarda para retomarlo tras
+     verificar (sobrevive al redirect porque va en sessionStorage). */
+  (function(){
+    var sb = psb({ids: idsFromHtml(indexHtml), hash:'#/g/g1',
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}})});
+    loadApp(sb);
+    t('puerta al arrancar: guarda el enlace pendiente',
+      sb.sessionStorage.getItem('lacuota_verHash')==='#/g/g1',
+      String(sb.sessionStorage.getItem('lacuota_verHash')));
+    var sb2 = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}})});
+    loadApp(sb2);
+    t('puerta al arrancar sin enlace: no guarda nada pendiente',
+      sb2.sessionStorage.getItem('lacuota_verHash')===null);
+  })();
+  /* 15i: al verificar, la fecha local se alinea con la del servidor
+     (autoridad), sin importar si había prueba local. */
+  t('al verificar se adopta la fecha del servidor',
+    /S\.trialStart = S\.googleTrialStart;/.test(appJs));
 })();
 
 Promise.all(asyncTests).then(function(){

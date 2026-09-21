@@ -192,10 +192,12 @@
 
   /* La prueba gratis exige cuenta de Google verificada en el servidor
      (una cuenta = una prueba). Devuelve true si hay que mostrar la
-     pantalla de verificación antes de arrancar/usar la prueba.
-     Los que ya pagan o ya tienen prueba arrancada nunca la ven. */
+     pantalla de verificación antes de entrar a la app.
+     Los que ya pagan o ya verificaron nunca la ven. Tener la prueba
+     local arrancada NO exime: al verificar, la fecha local se alinea
+     con la del servidor (que nunca extiende una prueba en el reingreso). */
   L.needsVerify = function (S) {
-    if (!S || S.payActive || S.trialStart || S.googleOk) return false;
+    if (!S || S.payActive || S.googleOk) return false;
     return Object.keys((S.groups || {})).length > 0;
   };
 

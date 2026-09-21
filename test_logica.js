@@ -193,8 +193,8 @@ t(!L.needsVerify({groups:{}, trialStart:0, payActive:false, googleOk:false}),
   'sin grupos no pide verificar (onboarding normal)');
 t(L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:false, googleOk:false}),
   'con grupos y sin prueba ni cuenta pide verificar');
-t(!L.needsVerify({groups:{g1:{}}, trialStart:123, payActive:false, googleOk:false}),
-  'con prueba ya arrancada no pide verificar');
+t(L.needsVerify({groups:{g1:{}}, trialStart:123, payActive:false, googleOk:false}),
+  'con prueba local pero sin verificar SÍ pide verificar (v44: la puerta es para todos; al verificar la fecha se alinea con el servidor)');
 t(!L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:true, googleOk:false}),
   'pagando no pide verificar');
 t(!L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:false, googleOk:true}),
