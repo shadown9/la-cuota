@@ -1,9 +1,12 @@
 #!/bin/bash
 # La Cuota — publicar una versión nueva.
-# Uso: ./release.sh 32 "descripción del cambio"
-# Sube la versión en los 3 lugares (sw.js, app.js APP_V, version.json),
+# Uso: ./release.sh <version> "descripción del cambio"
+# Sube la versión en los 3 lugares (sw.js CACHE, app.js APP_V, version.json),
 # corre las pruebas, hace commit y push. Sin esto las actualizaciones
 # automáticas de la app no detectan la versión nueva.
+#
+# VENDOR_CACHE en sw.js (lacuota-vendor) NO se toca en releases normales.
+# Solo actualizarlo si cambia vendor/jspdf.umd.min.js o algún icono.
 set -e
 V="$1"; MSG="$2"
 [ -z "$V" ] && { echo "Uso: ./release.sh <version> \"mensaje\""; exit 1; }

@@ -1,30 +1,50 @@
 /* La Cuota — service worker: funciona sin conexión */
 var CACHE = 'lacuota-v64';
-var FILES = [
+
+/* Archivos de la app: se re-cachean en cada versión (release.sh actualiza CACHE). */
+var APP_FILES = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './logica.js',
   './nube.js',
-  './vendor/jspdf.umd.min.js',
   './manifest.json',
+  './recuperar.html'
+];
+
+/* Archivos estáticos que no cambian entre versiones: se descargan una sola vez
+   y persisten en VENDOR_CACHE aunque CACHE cambie. Actualizar este caché
+   solo es necesario al cambiar alguno de estos archivos. */
+var VENDOR_CACHE = 'lacuota-vendor';
+var VENDOR_FILES = [
+  './vendor/jspdf.umd.min.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-192.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
-  './icons/favicon-32.png',
-  './recuperar.html'
+  './icons/favicon-32.png'
 ];
 
 self.addEventListener('install', function(e){
   e.waitUntil(
-    caches.open(CACHE).then(function(c){
-      /* cache:'reload': la precarga IGNORA la caché HTTP del navegador.
-         Sin esto, el teléfono puede guardar un index.html viejo junto a
-         un app.js nuevo (mezcla de versiones) y la app no arranca. */
-      return c.addAll(FILES.map(function(u){ return new Request(u, {cache:'reload'}); }));
+    /* 1. Vendor: solo descarga los archivos que no estén ya en caché. */
+    caches.open(VENDOR_CACHE).then(function(vc){
+      return Promise.all(VENDOR_FILES.map(function(u){
+        return vc.match(u).then(function(hit){
+          if(hit) return;
+          return vc.add(new Request(u, {cache:'reload'}));
+        });
+      }));
+    }).then(function(){
+      /* 2. App: siempre descarga los archivos de la versión nueva, ignorando
+         la caché HTTP del navegador para evitar mezcla de versiones. */
+      return caches.open(CACHE).then(function(c){
+        return c.addAll(APP_FILES.map(function(u){
+          return new Request(u, {cache:'reload'});
+        }));
+      });
     }).then(function(){ return self.skipWaiting(); })
   );
 });
@@ -32,8 +52,11 @@ self.addEventListener('install', function(e){
 self.addEventListener('activate', function(e){
   e.waitUntil(
     caches.keys().then(function(keys){
-      return Promise.all(keys.filter(function(k){ return k !== CACHE; })
-        .map(function(k){ return caches.delete(k); }));
+      /* Elimina cachés viejas de la app pero preserva el caché de vendor. */
+      return Promise.all(
+        keys.filter(function(k){ return k !== CACHE && k !== VENDOR_CACHE; })
+          .map(function(k){ return caches.delete(k); })
+      );
     }).then(function(){ return self.clients.claim(); })
   );
 });
