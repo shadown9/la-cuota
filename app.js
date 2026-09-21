@@ -122,9 +122,7 @@ function avisarConLogo(titulo, cuerpo){
     }).catch(function(){});
   }catch(e){}
 }
-if(location.hostname === 'localhost' || location.hostname === '127.0.0.1'){
-  window.__lacuotaNotif = { pedir: pedirPermisoNotif, avisar: avisarConLogo };
-}
+window.__lacuotaNotif = { pedir: pedirPermisoNotif, avisar: avisarConLogo };
 
 /* Comparte con el menú del teléfono (WhatsApp, Telegram, etc.); si no se puede, copia. */
 function shareText(txt, title, copyMsg){
@@ -1543,7 +1541,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 64;
+var APP_V = 65;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

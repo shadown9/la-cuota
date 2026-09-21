@@ -99,7 +99,7 @@ function makeSandbox(opts){
       querySelector:function(){return fakeEl('q');},
       execCommand:function(){ return true; }
     },
-    location:{hash:opts.hash||'', href:'https://lacuota.org/', reload:function(){ sb.__reloaded=true; }},
+    location:{hash:opts.hash||'', href:'https://lacuota.org/', hostname:'localhost', reload:function(){ sb.__reloaded=true; }},
     navigator:{},
     localStorage:{getItem:function(k){return store[k]!==undefined?store[k]:null;},
       setItem:function(k,v){store[k]=String(v);}, removeItem:function(k){delete store[k];}},
