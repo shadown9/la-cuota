@@ -512,7 +512,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       groups:o.groups||{}, members:{}, payments:o.payments||{}, payTs:{}, delMembers:{}, unpays:{},
       onboarded:true, trialStart:o.trialStart||0, payActive:!!o.payActive, payEmail:o.payEmail||'',
       notifyPay:false, ui:{}, googleOk:!!o.googleOk, expectNoSession:!!o.expectNoSession,
-      redirectPending:!!o.redirectPending
+      redirectPending:!!o.redirectPending, redirectFromApp:!!o.redirectFromApp
     })};
   }
   var threw = null;
@@ -679,9 +679,11 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* 15l (v50/v51/v56): volviendo de Google sin sesión: la puerta lo dice en
-     tono amable y SIN códigos en pantalla (los códigos solo quedan en el
-     registro interno). El aviso se muestra en gris tranquilo, nunca en rojo. */
+  /* 15l (v60): volviendo de Google sin sesión en esta ventana: NO se
+     muestra ningún error ni se rinde a los segundos (en la app instalada el
+     redirect se completa en el navegador del sistema y la sesión llega por
+     el almacenamiento compartido). La puerta dice "Volviendo de Google…" y
+     queda vigilando hasta que la sesión aparezca. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
     loadApp(sb);
@@ -689,24 +691,26 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       ready: function(){ return true; },
       redirectResult: function(){ return Promise.resolve(null); },
       user: function(){ return null; },
-      onUser: function(cb){ cb(null); return function(){}; },
+      onUser: function(cb){ return function(){}; },
       signIn: function(){ return Promise.resolve(null); },
       token: function(){ return Promise.resolve(null); }
     });
-    var warned = [];
-    var origWarn = console.warn;
-    console.warn = function(){ warned.push(Array.prototype.slice.call(arguments).join(' ')); };
     sb.__lacuotaSub.redir();
     setTimeout(function(){
-      console.warn = origWarn;
       var msgEl = sb.__els['verMsg'];
-      var txt = msgEl.textContent;
-      t('sin sesión tras Google: muestra mensaje amable',
-        msgEl.hidden===false && /no devolvió la sesión/.test(txt), txt);
-      t('sin sesión tras Google: NO muestra códigos en pantalla',
-        !/código:|sin-sesion/.test(txt), txt);
-      t('sin sesión tras Google: el código queda en el registro interno',
-        warned.some(function(w){ return /sin-sesion/.test(w); }), warned.join(' | '));
+      t('volviendo de Google: no muestra ningún mensaje de fallo',
+        msgEl.hidden===true,
+        'verMsg.hidden='+msgEl.hidden+' texto='+msgEl.textContent);
+      t('volviendo de Google: indica el paso sin quedarse clavado en "verificando"',
+        sb.__els['verStep'].hidden===false && /Volviendo de Google/.test(sb.__els['verStep'].textContent),
+        sb.__els['verStep'].textContent);
+      t('volviendo de Google: queda vigilando el almacenamiento compartido',
+        sb.__lacuotaSub.vigilando()===true, String(sb.__lacuotaSub.vigilando()));
+      t('volviendo de Google: el botón queda deshabilitado mientras se espera',
+        sb.__els['verGoogle'].disabled===true, String(sb.__els['verGoogle'].disabled));
+      t('volviendo de Google: la marca pendiente se consume',
+        (function(){ try{ return JSON.parse(sb.localStorage.getItem('lacuota_v1')||'{}').redirectPending!==true; }catch(e){ return false; } })(),
+        String(sb.localStorage.getItem('lacuota_v1')));
       resolve();
     }, 60);
   }));
@@ -781,7 +785,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     !/fedcmToken/.test(appJs) && !/google\.accounts\.id/.test(appJs)
     && !/GOOGLE_CLIENT_ID/.test(appJs) && !/FEDCM_ESPERA/.test(appJs));
   t('v58: en la instalada se navega a Google con redirect (el popup abría una pestaña del sistema)',
-    /function viaRedirect\(\)/.test(appJs) && /if\(esInstalada\(\)\) return viaRedirect\(\);/.test(appJs));
+    /function viaRedirect\(desdeInstalada\)/.test(appJs) && /if\(esInstalada\(\)\) return viaRedirect\(true\);/.test(appJs));
   t('v58: en el navegador se usa el popup, y si lo bloquean cae al redirect',
     /signInWithPopup\(p\)\.catch/.test(appJs) && /auth\/popup-blocked/.test(appJs));
   t('v58: Google siempre muestra el selector de cuenta (no entra solo)',
@@ -804,7 +808,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
   t('v55/v58: al cerrar sesión se apaga el auto-entrar de Google (selector forzado)',
     /setCustomParameters\(\{prompt:'select_account'\}\)/.test(appJs));
   t('v56: el redirect a Google deja marca pendiente para rescatar al volver',
-    /S\.redirectPending = true; save\(\);/.test(appJs));
+    /S\.redirectPending = true;/.test(appJs));
   t('v56: al arrancar normal (sin volver de Google) no se persigue ninguna sesión',
     /if\(!veniaDeGoogle\)\{ verStep\(null\); return; \}/.test(appJs));
   t('v56: si se cierra la ventanita de Google no se muestra ningún aviso',
@@ -832,6 +836,26 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
   t('v59: al verificar sin destino en memoria se recupera el grupo guardado',
     /sessionStorage\.getItem\('lacuota_verGid'\)/.test(appJs) &&
     /next = \(function\(id\)\{ return function\(\)\{ openGroup\(id\); \}; \}\)\(_g\)/.test(appJs));
+  /* v60 (estático): puente entre la app instalada y el navegador del
+     sistema. La app vigila el almacenamiento compartido sin rendirse; la
+     pestaña que completa el redirect muestra "vuelve a la app". */
+  t('v60: el redirect de la instalada marca redirectFromApp (no en pestaña)',
+    /viaRedirect\(true\)/.test(appJs) && /viaRedirect\(false\)/.test(appJs) &&
+    /S\.redirectFromApp = !!desdeInstalada;/.test(appJs));
+  t('v60: la app vigila el almacenamiento compartido sin rendirse',
+    /function vigilarVueltaDeGoogle\(\)/.test(appJs) && /function sondeoVuelta\(\)/.test(appJs) &&
+    /setInterval\(sondeoVuelta, 2000\)/.test(appJs));
+  t('v60: al llegar la sesión compartida la app recarga para entrar',
+    /comp\.googleOk[\s\S]{0,200}location\.reload\(\)/.test(appJs));
+  t('v60: jamás se muestra "no devolvió la sesión" (ni errores en el tránsito)',
+    !/no devolvió la sesión/.test(appJs) && !/sin-sesion/.test(appJs));
+  t('v60: la pestaña del sistema muestra "vuelve a la app" en vez de entrar',
+    /id="verHecho"/.test(indexHtml) && /mostrarGateVolverApp\(/.test(appJs) &&
+    /if\(gateVolverApp\)\{/.test(appJs));
+  t('v60: tocar el botón en la pestaña es seguir ahí (apaga la pantalla de vuelta)',
+    /if\(!esInstalada\(\)\) gateVolverApp = false;/.test(appJs));
+  t('v60: al arrancar verificado con grupo pendiente se abre el grupo',
+    /getItem\('lacuota_verGid'\)[\s\S]{0,1200}openGroup\(_rg\)/.test(appJs));
     /* 15o (v58): en la app instalada, tocar "Continuar con Google" navega a
      Google con redirect (el popup abriría una pestaña del sistema que nunca
      devuelve la sesión) y deja la marca para rescatar al volver. */
@@ -1017,6 +1041,149 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
         sb.__els['v-group'].hidden===false && sb.__els['v-home'].hidden===true,
         'v-group.hidden='+sb.__els['v-group'].hidden+' v-home.hidden='+sb.__els['v-home'].hidden);
       t('puerta desde el grupo: la marca de destino se consume',
+        sb.sessionStorage.getItem('lacuota_verGid')===null,
+        String(sb.sessionStorage.getItem('lacuota_verGid')));
+      resolve();
+    }, 60);
+  }));
+  /* 15aa (v60): en la app instalada, el redirect deja la marca
+     redirectFromApp (el redirect lo inició la app, no una pestaña). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
+          signInWithRedirect: function(){ return Promise.resolve(); },
+          getRedirectResult: function(){ return Promise.resolve(null); },
+          onAuthStateChanged: function(){ return function(){}; }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var guardado = {};
+      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
+      t('instalada: el redirect marca que lo inició la app (redirectFromApp)',
+        guardado.redirectFromApp===true, JSON.stringify({redirectFromApp:guardado.redirectFromApp}));
+      resolve();
+    }, 60);
+  }));
+  /* 15ab (v60): en la pestaña del navegador, si el popup está bloqueado y se
+     cae al redirect, NO se marca redirectFromApp (no lo inició la app). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    /* pestaña: sin matchMedia de instalada */
+    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
+          signInWithRedirect: function(){ return Promise.resolve(); },
+          getRedirectResult: function(){ return Promise.resolve(null); },
+          onAuthStateChanged: function(){ return function(){}; }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var guardado = {};
+      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
+      t('pestaña con popup bloqueado: cae al redirect sin marcar redirectFromApp',
+        guardado.redirectPending===true && guardado.redirectFromApp!==true,
+        JSON.stringify({redirectPending:guardado.redirectPending, redirectFromApp:guardado.redirectFromApp}));
+      resolve();
+    }, 60);
+  }));
+  /* 15ac (v60): la pestaña del sistema que completa un redirect iniciado por
+     la app instalada muestra "vuelve a la app" y NO entra ahí. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true, redirectFromApp:true})});
+    var fetchCalls = [];
+    sb.fetch = function(url, opts){
+      fetchCalls.push(String(url));
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:4242, trialUsed:false}); } });
+    };
+    loadApp(sb); /* pestaña: sin matchMedia de instalada */
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      redirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_GATE'); }}}); },
+      user: function(){ return null; },
+      onUser: function(cb){ return function(){}; },
+      signIn: function(){ return Promise.resolve(null); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.__lacuotaSub.redir();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      var guardado = {};
+      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
+      t('pestaña del sistema: verifica la cuenta contra el servidor',
+        st.googleOk===true && st.trialStart===4242, JSON.stringify(st));
+      t('pestaña del sistema: muestra "vuelve a la app" en vez de entrar ahí',
+        sb.__els['verHecho'].hidden===false && /Vuelve a la app/.test(sb.__els['verHechoT'].textContent),
+        'verHecho.hidden='+sb.__els['verHecho'].hidden);
+      t('pestaña del sistema: no entra al inicio en esta pestaña',
+        sb.__els['v-home'].hidden===true, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      t('pestaña del sistema: la marca redirectFromApp se consume',
+        guardado.redirectFromApp!==true, 'redirectFromApp='+guardado.redirectFromApp);
+      resolve();
+    }, 80);
+  }));
+  /* 15ad (v60): la app instalada vigila el almacenamiento compartido: cuando
+     la pestaña del sistema completa la verificación, la app recarga para
+     entrar (no hay que tocar el botón de nuevo). */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
+    loadApp(sb);
+    sb.__lacuotaSub.setAuth({
+      ready: function(){ return true; },
+      redirectResult: function(){ return Promise.resolve(null); },
+      user: function(){ return null; },
+      onUser: function(cb){ return function(){}; },
+      signIn: function(){ return Promise.resolve(null); },
+      token: function(){ return Promise.resolve(null); }
+    });
+    sb.__lacuotaSub.redir();
+    setTimeout(function(){
+      t('vigilancia activa tras volver de Google', sb.__lacuotaSub.vigilando()===true);
+      /* la pestaña del sistema completa: escribe en el almacenamiento compartido */
+      var comp = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}');
+      comp.googleOk = true; comp.trialStart = 5151;
+      sb.localStorage.setItem('lacuota_v1', JSON.stringify(comp));
+      var entro = sb.__lacuotaSub.sondeo();
+      t('al llegar la sesión por el almacenamiento compartido: recarga para entrar',
+        entro===true && sb.__reloaded===true, 'sondeo='+entro+' reloaded='+sb.__reloaded);
+      t('tras detectar la sesión: deja de vigilar',
+        sb.__lacuotaSub.vigilando()===false, String(sb.__lacuotaSub.vigilando()));
+      resolve();
+    }, 60);
+  }));
+  /* 15ae (v60): al arrancar ya verificado (tras la recarga de la vigilancia),
+     si quedó un grupo pendiente de la puerta se abre el grupo, no el inicio. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, googleOk:true, trialStart:5151})});
+    sb.sessionStorage.setItem('lacuota_verGid', 'g1');
+    loadApp(sb);
+    setTimeout(function(){
+      t('arranque verificado con grupo pendiente: abre el grupo',
+        sb.__els['v-group'].hidden===false && sb.__els['v-home'].hidden===true,
+        'v-group.hidden='+sb.__els['v-group'].hidden+' v-home.hidden='+sb.__els['v-home'].hidden);
+      t('arranque verificado con grupo pendiente: la marca se consume',
         sb.sessionStorage.getItem('lacuota_verGid')===null,
         String(sb.sessionStorage.getItem('lacuota_verGid')));
       resolve();

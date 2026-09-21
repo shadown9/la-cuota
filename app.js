@@ -12,7 +12,7 @@ function load(){
     var raw = localStorage.getItem(KEY);
     if (raw){ var s = JSON.parse(raw); s.groups=s.groups||{}; s.members=s.members||{}; s.payments=s.payments||{};
       s.payTs=s.payTs||{}; s.delMembers=s.delMembers||{}; s.unpays=s.unpays||{}; s.ui=s.ui||{};
-      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; s.redirectPending=!!s.redirectPending; return s; }
+      s.googleOk=!!s.googleOk; s.googleSub=s.googleSub||''; s.googleTrialStart=s.googleTrialStart||0; s.expectNoSession=!!s.expectNoSession; s.redirectPending=!!s.redirectPending; s.redirectFromApp=!!s.redirectFromApp; return s; }
   }catch(e){}
   return {groups:{}, members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}, onboarded:false, trialStart:0, payActive:false, payEmail:'', notifyPay:false, ui:{},
     /* Identidad: la prueba gratis exige una cuenta de Google verificada en
@@ -188,17 +188,22 @@ var FB_AUTH = {
     try{ p.setCustomParameters({prompt:'select_account'}); }catch(e){}
     /* Se va a navegar a Google y volver: marcarlo para que al regresar
        la app sepa que hay una sesión que rescatar. */
-    function viaRedirect(){
-      S.redirectPending = true; save();
+    function viaRedirect(desdeInstalada){
+      S.redirectPending = true;
+      /* Marca de que el redirect lo inició la app instalada (no una pestaña
+         del navegador): la pestaña del sistema que complete el redirect
+         muestra "vuelve a la app" en vez de entrar ahí. */
+      S.redirectFromApp = !!desdeInstalada;
+      save();
       return auth.signInWithRedirect(p);
     }
     /* En la app instalada el popup abre una pestaña del sistema que nunca
        devuelve la sesión: ahí se navega a Google y se vuelve en la misma
        ventana (redirect). En el navegador, el popup deja todo en la misma
        página; si el bloqueador lo impide, se cae al redirect. */
-    if(esInstalada()) return viaRedirect();
+    if(esInstalada()) return viaRedirect(true);
     return auth.signInWithPopup(p).catch(function(err){
-      if(err && err.code === 'auth/popup-blocked') return viaRedirect();
+      if(err && err.code === 'auth/popup-blocked') return viaRedirect(false);
       throw err;
     });
   },
@@ -312,12 +317,14 @@ function cuentaVerificar(userObj){
      único, así con lo que dice la pantalla sabemos dónde se perdió el
      intento, sin mostrarle errores a nadie. */
   function msg(t, code){
+    detenerVigilancia();
     if(m){ m.hidden=false; m.textContent = t; }
     if(code){ try{ console.warn('[lacuota] google:', code); }catch(e){} }
     verStep(null);
     if(b) b.disabled=false;
   }
   if(b) b.disabled = true;
+  if(m){ m.hidden = true; m.textContent=''; }
   verStep('Verificando tu cuenta…');
   /* Sin la clave web de Firebase (la pone el dueño al activar Google),
      no se puede verificar: decirlo claro en vez de fallar raro. */
@@ -334,7 +341,11 @@ function cuentaVerificar(userObj){
      evitar rebotar a Google otra vez. */
   function freshSignIn(){
     /* Con popup el usuario llega aquí mismo con su credencial; con
-       redirect la página ya navegó y el resultado se procesa al volver. */
+       redirect la página ya navegó y el resultado se procesa al volver.
+       En la app instalada el redirect se completa en el navegador del
+       sistema: empezar a vigilar el almacenamiento compartido desde ya,
+       para entrar solo cuando la sesión llegue. */
+    try{ if(esInstalada()) vigilarVueltaDeGoogle(); }catch(e){}
     return FB_AUTH.signIn().then(function(cred){
       if(cred && cred.user && cred.user.getIdToken) return cred.user.getIdToken();
       return null;
@@ -392,6 +403,18 @@ function cuentaVerificar(userObj){
       var desdeApp = false;
       try{ desdeApp = sessionStorage.getItem('lacuota_desdeApp')==='1'; sessionStorage.removeItem('lacuota_desdeApp'); }catch(e){}
       var vuelve = (desdeApp && !esInstalada()) ? ' Vuelve a la app de La Cuota.' : '';
+      /* v60: el redirect lo inició la app instalada y Google completó aquí,
+         en la pestaña del sistema. No se entra en esta pestaña: se muestra
+         "vuelve a la app" y la app instalada recoge la sesión del
+         almacenamiento compartido. */
+      detenerVigilancia();
+      if(gateVolverApp){
+        gateVolverApp = false;
+        if(pruebaActiva) mostrarGateVolverApp('Listo. Vuelve a la app de La Cuota.', 'Tu cuenta ya quedó verificada en este teléfono. Abre la app desde tu pantalla de inicio.');
+        else if(res.trialExpired) mostrarGateVolverApp('Tu prueba gratis terminó.', 'Vuelve a la app de La Cuota para activar tu suscripción.');
+        else mostrarGateVolverApp('Esta cuenta ya usó su prueba gratis.', 'Vuelve a la app de La Cuota para activar tu suscripción.');
+        return;
+      }
       if(pruebaActiva){
         toast((res.trialUsed ? 'Sesión verificada. Tu prueba sigue activa.'
                             : 'Prueba activada: 30 días gratis.') + vuelve);
@@ -424,6 +447,114 @@ function cuentaVerificar(userObj){
     }
   });
 }
+/* ---------- v60: puente entre la app instalada y el navegador ----------
+   En la app instalada (Android), el redirect de Firebase navega a una URL
+   fuera del alcance de la app y el sistema lo abre en el navegador: la
+   ventana de la app NUNCA recibe el resultado del redirect. La sesión se
+   completa en la pestaña del sistema y llega a la app por el almacenamiento
+   compartido (mismo origen, mismo perfil). Por eso la app vigila ese
+   almacenamiento hasta que la sesión aparece: jamás se rinde a los pocos
+   segundos ni muestra un error por este simple tránsito. */
+var gateVolverApp = false; /* esta pestaña completó un redirect de la app */
+var verVigilando = false, verPoll = null, verUnsub = null;
+function leerCompartido(){
+  try{
+    var raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function detenerVigilancia(){
+  verVigilando = false;
+  try{ if(verPoll) clearInterval(verPoll); }catch(e){}
+  verPoll = null;
+  try{ if(verUnsub) verUnsub(); }catch(e){}
+  verUnsub = null;
+}
+/* Un sondeo: revisa si la sesión ya llegó por el almacenamiento compartido.
+   Devuelve true si se completó algo (recarga o verificación). */
+function sondeoVuelta(){
+  if(!verVigilando) return false;
+  var vv = null;
+  try{ vv = document.getElementById('v-verify'); }catch(e){}
+  if(!vv || vv.hidden){ detenerVigilancia(); return false; }
+  var comp = leerCompartido();
+  if(comp && comp.googleOk){
+    /* La pestaña del sistema completó la verificación: recargar para entrar
+       con los datos ya guardados. El grupo abierto se restaura desde
+       sessionStorage al arrancar. */
+    detenerVigilancia();
+    try{ location.reload(); }catch(e){}
+    return true;
+  }
+  var u = null;
+  try{ u = FB_AUTH.user(); }catch(e){}
+  if(u){ detenerVigilancia(); conUsuario(u); return true; }
+  return false;
+}
+function vigilarVueltaDeGoogle(){
+  if(verVigilando) return;
+  verVigilando = true;
+  /* Primer sondeo inmediato: si la sesión ya está en este contexto, entrar
+     sin esperar al intervalo. */
+  try{ if(sondeoVuelta()) return; }catch(e){}
+  if(!verVigilando) return;
+  try{ verPoll = setInterval(sondeoVuelta, 2000); }catch(e){}
+  /* Respaldo: si la sesión cae en este mismo contexto, entrar directo. */
+  try{
+    if(verUnsub) verUnsub();
+    verUnsub = FB_AUTH.onUser(function(u){
+      if(u && verVigilando){ detenerVigilancia(); conUsuario(u); }
+    });
+  }catch(e){}
+}
+/* Si la app vuelve al frente mientras vigila, sondear de inmediato en vez
+   de esperar al siguiente intervalo. */
+try{
+  document.addEventListener('visibilitychange', function(){
+    if(!document.hidden && verVigilando){ try{ sondeoVuelta(); }catch(e){} }
+  });
+  window.addEventListener('pageshow', function(){
+    if(verVigilando){ try{ sondeoVuelta(); }catch(e){} }
+  });
+}catch(e){}
+/* Pantalla de "vuelve a la app": el inicio con Google se completó en la
+   pestaña del sistema (la app instalada no puede recibir el redirect ahí).
+   No se entra en esta pestaña: la app instalada recoge la sesión del
+   almacenamiento compartido. */
+function mostrarGateVolverApp(titulo, subtitulo){
+  detenerVigilancia();
+  verStep(null);
+  var b = document.getElementById('verGoogle'); if(b) b.hidden = true;
+  var m = document.getElementById('verMsg'); if(m) m.hidden = true;
+  var t = document.getElementById('verHechoT'); if(t) t.textContent = titulo;
+  var s = document.getElementById('verHechoS'); if(s) s.textContent = subtitulo;
+  var g = document.getElementById('verHecho'); if(g) g.hidden = false;
+  show('v-verify');
+}
+/* Lleva al usuario a donde iba antes del redirect: se recupera de
+   sessionStorage porque la recarga lo pudo haber perdido. (v60: al alcance
+   del módulo para que la vigilancia del almacenamiento compartido también
+   pueda completar la verificación.) */
+function retomarDestino(){
+  var gid = null;
+  try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
+  if(gid){
+    verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
+    return;
+  }
+  /* Puerta al arrancar: si venía con un enlace (tesorero/miembro,
+     pago-ok, etc.), retomarlo tras verificar. */
+  var vh = null;
+  try{ vh = sessionStorage.getItem('lacuota_verHash'); sessionStorage.removeItem('lacuota_verHash'); }catch(e){}
+  if(vh){ try{ if((location.hash||'')!==vh) location.hash = vh; }catch(e2){}
+    verNext = function(){ route(); }; }
+}
+function conUsuario(u){
+  var vv = document.getElementById('v-verify');
+  if(!vv || vv.hidden) showVerify();
+  retomarDestino();
+  cuentaVerificar(u);
+}
 /* Al volver del redirect de Google, completa la verificación. */
 function cuentaVerificarRedirect(){
   /* Si el SDK de Google no cargó (sin internet al arrancar), decirlo en
@@ -437,33 +568,6 @@ function cuentaVerificarRedirect(){
   }
   /* Lleva al usuario a donde iba antes del redirect: se recupera de
      sessionStorage porque la recarga lo pudo haber perdido. */
-  function retomarDestino(){
-    var gid = null;
-    try{ gid = sessionStorage.getItem('lacuota_verGid'); sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
-    if(gid){
-      verNext = (function(id){ return function(){ openGroup(id); setTimeout(openMembers, 600); }; })(gid);
-      return;
-    }
-    /* Puerta al arrancar: si venía con un enlace (tesorero/miembro,
-       pago-ok, etc.), retomarlo tras verificar. */
-    var vh = null;
-    try{ vh = sessionStorage.getItem('lacuota_verHash'); sessionStorage.removeItem('lacuota_verHash'); }catch(e){}
-    if(vh){ try{ if((location.hash||'')!==vh) location.hash = vh; }catch(e2){}
-      verNext = function(){ route(); }; }
-  }
-  function conUsuario(u){
-    var vv = document.getElementById('v-verify');
-    if(!vv || vv.hidden) showVerify();
-    retomarDestino();
-    cuentaVerificar(u);
-  }
-  function sinSesion(){
-    verStep(null);
-    var m=document.getElementById('verMsg');
-    if(m){ m.hidden=false; m.textContent='Google no devolvió la sesión. Toca «Continuar con Google» de nuevo.'; }
-    try{ console.warn('[lacuota] google:', 'sin-sesion'); }catch(e){}
-    var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
-  }
   FB_AUTH.redirectResult().then(function(result){
     /* El redirect ya volvió: la marca se consume aquí mismo, en ambas vías
        (con o sin usuario en el resultado), para que no quede puesta. Se
@@ -471,6 +575,15 @@ function cuentaVerificarRedirect(){
        entrega una sola vez: el rescate de abajo la necesita. */
     var veniaDeGoogle = S.redirectPending;
     if(veniaDeGoogle){ S.redirectPending = false; save(); }
+    /* La marca redirectFromApp solo la consume la pestaña del navegador: si
+       el redirect lo inició la app instalada, esta pestaña es la "pata" del
+       sistema donde Google completó el inicio. Tras verificar se muestra la
+       pantalla de "vuelve a la app" en vez de entrar aquí. */
+    try{
+      if(!esInstalada() && S.redirectFromApp){
+        gateVolverApp = true; S.redirectFromApp = false; save();
+      }
+    }catch(e){}
     if(result && result.user){ conUsuario(result.user); return; }
     /* El resultado del redirect se entrega UNA sola vez: si la página se
        recargó después de volver de Google (actualización automática,
@@ -487,28 +600,23 @@ function cuentaVerificarRedirect(){
        nada que esperar: antes se esperaban 4 segundos y se mostraba un
        aviso sin que el usuario hubiera tocado nada. */
     if(!veniaDeGoogle){ verStep(null); return; }
+    /* Se volvió de Google pero el resultado no cayó en esta ventana: en la
+       app instalada el redirect se completa en el navegador del sistema y
+       la sesión llega por el almacenamiento compartido. Se vigila sin
+       rendirse: jamás se muestra un error por este simple tránsito. */
     verStep('Volviendo de Google…');
-    var u0 = null;
-    try{ u0 = FB_AUTH.user(); }catch(e){}
-    if(u0){ conUsuario(u0); return; }
-    if(!FB_AUTH.onUser){ sinSesion(); return; }
-    /* La sesión puede tardar un momento en restaurarse: esperarla hasta
-       4 segundos antes de rendirse. */
-    var done=false, unsub=null;
-    function fin(){
-      if(done) return; done=true;
-      try{ if(unsub) unsub(); }catch(e){}
-      sinSesion();
-    }
-    var to=setTimeout(function(){ fin(); }, 4000);
-    try{
-      unsub = FB_AUTH.onUser(function(u){
-        if(done) return; done=true; clearTimeout(to);
-        try{ if(unsub) unsub(); }catch(e){}
-        if(u){ conUsuario(u); }
-        else { sinSesion(); }
-      });
-    }catch(e){ clearTimeout(to); sinSesion(); }
+    var b0=document.getElementById('verGoogle'); if(b0) b0.disabled=true;
+    vigilarVueltaDeGoogle();
+    setTimeout(function(){
+      /* La sesión puede tardar (elegir la cuenta en el navegador): no es un
+         error. El botón queda listo para reintentar y la vigilancia sigue en
+         segundo plano: si la sesión llega, se entra solo. */
+      if(!verVigilando) return;
+      verStep(null);
+      var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
+      var m=document.getElementById('verMsg');
+      if(m){ m.hidden=false; m.textContent='Si ya elegiste tu cuenta en el navegador, regresa a esta app: entras solo.'; }
+    }, 4000);
   }).catch(function(e){
     verStep(null);
     var code=(e && e.code) || 'redirect';
@@ -1175,6 +1283,9 @@ window.__lacuotaSub = {
   cuenta: function(){ return {googleOk:!!S.googleOk, trialStart:S.trialStart||0, expectNoSession:!!S.expectNoSession}; },
   redir: function(){ cuentaVerificarRedirect(); },
   setAuth: function(a){ FB_AUTH = a; },
+  /* v60 (pruebas): un sondeo de la vigilancia del redirect + su estado */
+  sondeo: function(){ return sondeoVuelta(); },
+  vigilando: function(){ return !!verVigilando; },
 };
 /* ---------- PAGOS VERIFICADOS (Worker + Stripe) ---------- */
 var PAY_VERIFY_URL = 'https://lacuota-pagos.deivyespinosa07.workers.dev';
@@ -1478,7 +1589,13 @@ on('payManageSub', 'click', manageSub);
 on('pagoOkManage', 'click', manageSub);
 on('btnManageSub', 'click', manageSub);
 on('roCta', 'click', function(){ setHash(''); locked()?renderPay():startOnboarding(); });
-on('verGoogle', 'click', cuentaVerificar);
+on('verGoogle', 'click', function(){
+  /* Tocar el botón en esta pestaña es intención explícita de seguir aquí:
+     no mostrar la pantalla de "vuelve a la app" (esa es solo para el
+     redirect que la app instalada completó solo en esta pestaña). */
+  try{ if(!esInstalada()) gateVolverApp = false; }catch(e){}
+  cuentaVerificar();
+});
 
 /* Trae un grupo de la nube al teléfono (también sirve para recuperar
    un grupo después de borrar los datos del navegador) */
@@ -1631,7 +1748,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 59;
+var APP_V = 60;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1657,10 +1774,14 @@ document.addEventListener('visibilitychange', function(){
 });
 /* Si la verificación se completó en el navegador (segundo camino), al
    volver a la app la puerta ya no tiene nada que pedir: la sesión es
-   compartida por el origen, así que se entra directo. */
+   compartida por el origen, así que se entra directo. (v60: se lee el
+   almacenamiento compartido porque el S en memoria de esta ventana queda
+   viejo cuando la otra pestaña completa la verificación.) */
 function reanudarSiVerificado(){
   try{
     var v = $('v-verify'); if(!v || v.hidden) return;
+    var comp = leerCompartido();
+    if(comp && comp.googleOk){ try{ location.reload(); }catch(e){} return; }
     if(L.needsVerify(S)) return;
     verStep(null);
     route();
@@ -1720,6 +1841,11 @@ try{
      cuenta): quien tenga grupos sin verificar ve la pantalla de
      verificación al arrancar, antes de entrar. El enlace con el que venía
      (si traía uno) se guarda para retomarlo tras verificar. */
+  /* Al volver del redirect en la app instalada, la vigilancia recarga la
+     página cuando la sesión llega por el almacenamiento compartido: si
+     quedó un grupo pendiente de la puerta, abrirlo en vez del inicio. */
+  var _rg = null;
+  try{ _rg = sessionStorage.getItem('lacuota_verGid'); }catch(e){}
   if(L.needsVerify(S)){
     /* Solo se guarda, nunca se borra aquí: al volver del redirect de
        Google el hash viene vacío y borrarlo perdería el enlace pendiente.
@@ -1727,6 +1853,9 @@ try{
     var _vh = location.hash || '';
     try{ if(_vh && _vh !== '#') sessionStorage.setItem('lacuota_verHash', _vh); }catch(e){}
     showVerify();
+  }else if(_rg && S.groups && S.groups[_rg]){
+    try{ sessionStorage.removeItem('lacuota_verGid'); }catch(e){}
+    openGroup(_rg);
   }else{
     route();
   }

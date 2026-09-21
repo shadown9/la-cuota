@@ -277,6 +277,9 @@ input:focus{border-bottom-color:var(--ink)}
 /* Paso del regreso de Google (diagnóstico visible, letra pequeña) */
 .verstep{font-size:13px;color:#8e8e93;text-align:center;margin:10px 0 0;min-height:18px}
 .verstep[hidden]{display:none}
+/* Pantalla de "vuelve a la app" (el redirect se completó en el navegador) */
+#verHecho[hidden]{display:none}
+.verhecho-t{font-size:22px;font-weight:700;text-align:center;margin:28px 0 10px;color:#111}
 /* La puerta jamás muestra alarmas en rojo: si algo falla, se lee como una
    línea tranquila igual que el resto del texto, nunca como un error. */
 #verMsg{color:var(--muted);font-weight:400}
