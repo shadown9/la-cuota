@@ -133,16 +133,19 @@
 
   <!-- VERIFICACIÓN DE CUENTA (una prueba gratis por cuenta de Google) -->
   <section id="v-verify" class="view" hidden>
-    <div class="verify-card">
-      <div class="verify-g">G</div>
-      <h1>Activa tus 30 días gratis</h1>
-      <p class="verify-sub">La Cuota organiza el dinero de tu grupo: crea el grupo, agrega a los miembros y marca cada pago con un toque. Sin enredos, sin Excel, sin perseguir a nadie.</p>
-      <ul class="verify-perks">
-        <li><span class="vp-ico">✓</span> Pagos marcados en 1 toque</li>
-        <li><span class="vp-ico">✓</span> Recordatorios por WhatsApp</li>
-        <li><span class="vp-ico">✓</span> Historial y cuentas siempre claras</li>
-      </ul>
-      <p>Entra con tu cuenta de Google para activar tu prueba. Cada cuenta disfruta de <b>una sola prueba</b> en La Cuota.</p>
+
+    <!-- HERO -->
+    <div class="lp-top">
+      <div class="lp-app-icon">
+        <img src="icons/icon-192.png" alt="La Cuota">
+      </div>
+      <h1 class="lp-brand-name">La Cuota</h1>
+      <p class="lp-tagline">Las cuotas de tu grupo,<br>sin libreta ni confusiones.</p>
+    </div>
+
+    <!-- CTA PRINCIPAL -->
+    <div class="lp-cta-box">
+      <div class="lp-free-badge">30 días gratis · Sin tarjeta de crédito</div>
       <button id="verGoogle" class="btn-google btn-block"><span class="gG">G</span> Continuar con Google</button>
       <p class="verstep" id="verStep" hidden></p>
       <p class="fine" id="verMsg" hidden></p>
@@ -151,9 +154,58 @@
         <p class="fine" id="verHechoS">Toca para volver a la app de La Cuota.</p>
         <button id="verVolver" class="btn-google btn-block" hidden><span class="gG">◀</span> Abrir la app de La Cuota</button>
       </div>
-      <p class="fine">No publicamos nada en tu nombre. Solo guardamos que esta cuenta ya usó su prueba, para que el sistema sea justo con todos.</p>
-      <p class="verver" id="verVer"></p>
+      <p class="lp-privacy-note">No publicamos nada en tu nombre. Solo guardamos que esta cuenta ya usó su prueba, para que el sistema sea justo con todos.</p>
     </div>
+
+    <!-- ¿POR QUÉ LA CUOTA? -->
+    <div class="lp-sep"><span>¿Por qué La Cuota?</span></div>
+
+    <div class="lp-feats">
+      <div class="lp-feat">
+        <span class="lp-fi">👆</span>
+        <div>
+          <strong>Marca pagos en 1 toque</strong>
+          <p>Registra quién pagó y quién debe al instante. Sin libreta, sin Excel, sin confusiones.</p>
+        </div>
+      </div>
+      <div class="lp-feat">
+        <span class="lp-fi">💬</span>
+        <div>
+          <strong>Recuerda por WhatsApp</strong>
+          <p>Genera el aviso con los nombres de los que faltan, listo para pegar en el grupo.</p>
+        </div>
+      </div>
+      <div class="lp-feat">
+        <span class="lp-fi">📊</span>
+        <div>
+          <strong>Historial siempre claro</strong>
+          <p>Todos los períodos guardados. Exporta en PDF o CSV con un solo toque.</p>
+        </div>
+      </div>
+      <div class="lp-feat">
+        <span class="lp-fi">🔔</span>
+        <div>
+          <strong>Recordatorios automáticos</strong>
+          <p>La app te avisa cuando el período va a cerrar y todavía quedan deudores.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PARA QUIÉN -->
+    <p class="lp-for-label">Para cualquier grupo que recauda dinero</p>
+    <div class="lp-chips">
+      <span class="lp-chip">Asociaciones</span>
+      <span class="lp-chip">Equipos deportivos</span>
+      <span class="lp-chip">Juntas de vecinos</span>
+      <span class="lp-chip">Iglesias</span>
+      <span class="lp-chip">Grupos de WhatsApp</span>
+      <span class="lp-chip">Grupos de estudio</span>
+    </div>
+
+    <!-- PIE -->
+    <p class="lp-price-note">Después de los 30 días: $2/mes por grupo · Cancela cuando quieras · Tus datos nunca se borran</p>
+    <p class="verver" id="verVer"></p>
+
   </section>
 
   <!-- MIEMBROS -->

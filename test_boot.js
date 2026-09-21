@@ -481,7 +481,7 @@ t('existe la pantalla de verificación en el HTML',
   /id="v-verify"/.test(indexHtml) && /id="verGoogle"/.test(indexHtml) && /id="verMsg"/.test(indexHtml));
 t('v-verify está en la lista de vistas', /'v-verify'/.test(appJs));
 t('v-verify vende la app antes de pedir Google (qué es + beneficios)',
-  /verify-perks/.test(indexHtml) && /organiza el dinero de tu grupo/.test(indexHtml));
+  /lp-feats/.test(indexHtml) && /lp-chips/.test(indexHtml) && /lp-free-badge/.test(indexHtml));
 t('banner de instalación existe en el inicio', /id="installBanner"/.test(indexHtml));
 t('app.js captura beforeinstallprompt para el botón Instalar', /beforeinstallprompt/.test(appJs));
 t('iPhone tiene instrucciones manuales de instalación', /Añadir a pantalla de inicio/.test(appJs));
