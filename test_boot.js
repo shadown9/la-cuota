@@ -770,14 +770,22 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
       resolve();
     }, 60);
   }));
-  /* v52 (estático): la ventanita nativa de Google (FedCM) es la vía principal
-     en la app instalada, donde popup y redirect pierden la sesión. */
-  t('index.html carga la librería de Google (gsi)', /accounts\.google\.com\/gsi\/client/.test(indexHtml));
-  t('GOOGLE_CLIENT_ID del proyecto configurado', /GOOGLE_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug\.apps\.googleusercontent\.com'/.test(appJs));
-  t('signIn intenta FedCM primero y canjea por sesión de Firebase',
-    /fedcmToken\(\)\.then/.test(appJs) && /signInWithCredential/.test(appJs));
-  t('en la app instalada no se intenta el popup (se cuelga)',
-    /if\(instalada\) return Promise\.reject\(\{code:'auth\/popup-closed-by-user'\}\)/.test(appJs));
+  /* v58 (estático): se eliminó la ventanita nativa de Google (FedCM). Google
+     rechaza lacuota.org como origen del cliente OAuth (INVALID_ORIGIN en su
+     endpoint de FedCM), así que la ventanita jamás devolvía credencial. El
+     inicio ahora es 100% Firebase Auth: redirect en la instalada, popup en
+     el navegador. */
+  t('v58: index.html ya no carga la librería gsi de Google',
+    !/accounts\.google\.com\/gsi\/client/.test(indexHtml));
+  t('v58: no queda rastro de FedCM crudo en el código',
+    !/fedcmToken/.test(appJs) && !/google\.accounts\.id/.test(appJs)
+    && !/GOOGLE_CLIENT_ID/.test(appJs) && !/FEDCM_ESPERA/.test(appJs));
+  t('v58: en la instalada se navega a Google con redirect (el popup abría una pestaña del sistema)',
+    /function viaRedirect\(\)/.test(appJs) && /if\(esInstalada\(\)\) return viaRedirect\(\);/.test(appJs));
+  t('v58: en el navegador se usa el popup, y si lo bloquean cae al redirect',
+    /signInWithPopup\(p\)\.catch/.test(appJs) && /auth\/popup-blocked/.test(appJs));
+  t('v58: Google siempre muestra el selector de cuenta (no entra solo)',
+    /setCustomParameters\(\{prompt:'select_account'\}\)/.test(appJs));
   t('v-verify muestra la versión en letra pequeña (verVer)',
     /id="verVer"/.test(indexHtml) && /getElementById\('verVer'\)/.test(appJs));
   t('v54: el inicio tiene "Cerrar sesión" junto a las demás opciones (homeSignOut)',
@@ -793,8 +801,8 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /if\(S\.expectNoSession\)\{ verStep\(null\); return; \}/.test(appJs));
   t('v55: al verificar se limpia la marca de cierre',
     /S\.expectNoSession = false;/.test(appJs));
-  t('v55: al cerrar sesión se apaga el auto-entrar de Google',
-    /disableAutoSelect\(\)/.test(appJs));
+  t('v55/v58: al cerrar sesión se apaga el auto-entrar de Google (selector forzado)',
+    /setCustomParameters\(\{prompt:'select_account'\}\)/.test(appJs));
   t('v56: el redirect a Google deja marca pendiente para rescatar al volver',
     /S\.redirectPending = true; save\(\);/.test(appJs));
   t('v56: al arrancar normal (sin volver de Google) no se persigue ninguna sesión',
@@ -803,135 +811,151 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     !/Se canceló el inicio de sesión/.test(appJs));
   t('v56: la puerta jamás muestra alarmas en rojo',
     !/#verMsg\{color:#b00020/.test(cssTxt));
-  t('v57: FedCM falla rápido si Google no responde (15s, no 90s)',
-    /var FEDCM_ESPERA_MS = 15000;/.test(appJs) && /var FEDCM_ESPERA_ELIGIENDO_MS = 60000;/.test(appJs)
-    && /armarEspera\(FEDCM_ESPERA_MS\)/.test(appJs));
-  t('v57: si la ventanita se mostró, la espera se extiende (no castiga al que elige despacio)',
-    /isDisplayMoment/.test(appJs) && /armarEspera\(FEDCM_ESPERA_ELIGIENDO_MS\)/.test(appJs));
-  t('v57: si el usuario cierra la ventanita no se reintenta por otro camino',
-    /if\(code === 'fedcm\/omitido'\) throw err;/.test(appJs));
-  t('v57: en la app instalada, si la ventanita no se abre se ofrece entrar desde el navegador',
-    /mostrarViaNavegador\(\)/.test(appJs) && /id="verAlt"/.test(indexHtml)
-    && /id="verAltBtn"[^>]*href="#entrar-app"[^>]*target="_blank"/.test(indexHtml));
-  t('v57: la puerta oculta la vía del navegador al mostrarse de nuevo',
-    /getElementById\('verAlt'\)/.test(appJs));
-  t('v57: al volver a la app tras verificar en el navegador se entra directo',
+  /* v58 (estático): sin ventanita nativa ya no hay esperas de FedCM ni vía
+     del navegador. Se conserva el aviso "Vuelve a la app" por si el
+     redirect aterriza en el navegador en algún teléfono. */
+  t('v58: se eliminó la vía del navegador (ya no hace falta)',
+    !/mostrarViaNavegador/.test(appJs) && !/id="verAlt"/.test(indexHtml));
+  t('v58: cerrar el popup de Google no muestra ningún aviso',
+    /auth\/popup-closed-by-user/.test(appJs) && !/Se canceló el inicio de sesión/.test(appJs));
+  t('v58: al volver a la app tras verificar en el navegador se entra directo',
     /reanudarSiVerificado\(\)/.test(appJs));
-  t('v57: el arranque consume el marcador #entrar-app',
+  t('v58: el arranque consume el marcador #entrar-app',
     /lacuota_desdeApp/.test(appJs));
-  t('v57: tras verificar desde el navegador se avisa que vuelva a la app',
+  t('v58: tras verificar desde el navegador se avisa que vuelva a la app',
     /Vuelve a la app de La Cuota/.test(appJs));
-  /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
-     devuelve el token sin salir de la página; se canjea por la sesión de
-     Firebase y la prueba se verifica con el token del usuario real. */
+    /* 15o (v58): en la app instalada, tocar "Continuar con Google" navega a
+     Google con redirect (el popup abriría una pestaña del sistema que nunca
+     devuelve la sesión) y deja la marca para rescatar al volver. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
     loadApp(sb);
     sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
-    var gisCfg = null, credCalls = [], popupCalls = 0, redirectCalls = 0, fetchCalls = [];
-    sb.google = { accounts: { id: {
-      initialize: function(cfg){ gisCfg = cfg; },
-      prompt: function(cb){ gisCfg.callback({credential:'GIS_JWT_DE_PRUEBA'}); },
-      cancel: function(){}
-    }}};
-    function FakeProvider(){ this.addScope = function(){}; }
-    FakeProvider.credential = function(idToken){ credCalls.push(idToken); return {idToken:idToken}; };
+    var popupCalls = 0, redirectCalls = 0, customParams = null;
+    function FakeProvider(){
+      this.addScope = function(){};
+      this.setCustomParameters = function(p){ customParams = p; };
+    }
     sb.firebase = {
       apps: [], initializeApp: function(){},
       auth: function(){
         return {
           currentUser: null,
-          signInWithCredential: function(cred){
-            return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_FEDCM'); }}});
-          },
           signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-blocked'}); },
-          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); }
+          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
+          getRedirectResult: function(){ return Promise.resolve(null); },
+          onAuthStateChanged: function(){ return function(){}; }
         };
       }
     };
     sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.fetch = function(url, opts){
-      fetchCalls.push({url:url, body:String(opts && opts.body || '')});
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:777, trialUsed:false}); } });
-    };
     sb.__lacuotaSub.verificar();
     sb.__els['verGoogle']._ev.click();
     setTimeout(function(){
-      var st = sb.__lacuotaSub.cuenta();
-      t('fedcm: canjea el token de Google por sesión de Firebase',
-        credCalls.length===1 && credCalls[0]==='GIS_JWT_DE_PRUEBA', credCalls.join(','));
-      t('fedcm: verifica con el token del usuario real',
-        st.googleOk===true && st.trialStart===777, JSON.stringify(st));
-      t('fedcm: llamó a /trial con el token de Firebase',
-        fetchCalls.length===1 && /TOK_FEDCM/.test(fetchCalls[0].body), fetchCalls.length+' llamadas');
-      t('fedcm: entra al inicio', sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
-      t('fedcm: no abrió popup ni redirect', popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
-      t('fedcm: usó el client_id del proyecto',
-        gisCfg && gisCfg.client_id==='741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com',
-        String(gisCfg && gisCfg.client_id));
+      var guardado = {};
+      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
+      t('instalada: navega a Google con redirect (ni intenta el popup)',
+        redirectCalls===1 && popupCalls===0, 'redirect='+redirectCalls+' popup='+popupCalls);
+      t('instalada: deja la marca para rescatar la sesión al volver',
+        guardado.redirectPending===true, JSON.stringify({redirectPending:guardado.redirectPending}));
+      t('instalada: Google siempre muestra el selector de cuenta',
+        customParams && customParams.prompt==='select_account', JSON.stringify(customParams));
       resolve();
     }, 60);
   }));
-  /* 15p (v52): si la librería de Google no cargó, el inicio REAL cae al
-     popup clásico en vez de varar al usuario. */
+  /* 15o2 (v58): al volver del redirect, la app completa la verificación con
+     el usuario que trae Google y entra al inicio. */
   asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    loadApp(sb);
-    /* sin sb.google: la librería gsi no cargó */
-    var popupCalls = 0, fetchCalls = [];
-    function FakeProvider(){ this.addScope = function(){}; }
-    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}, redirectPending:true})});
+    var fetchCalls = [];
     sb.firebase = {
       apps: [], initializeApp: function(){},
       auth: function(){
         return {
           currentUser: null,
-          signInWithCredential: function(){ return Promise.reject({code:'x'}); },
-          signInWithPopup: function(){ popupCalls++; return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_POPUP2'); }}}); },
-          signInWithRedirect: function(){ return Promise.resolve(); }
+          getRedirectResult: function(){ return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_REDIRECT'); }}}); },
+          onAuthStateChanged: function(){ return function(){}; }
         };
       }
     };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
     sb.fetch = function(url, opts){
-      fetchCalls.push(1);
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:888, trialUsed:false}); } });
+      fetchCalls.push({url:String(url), body:String(opts && opts.body || '')});
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:999, trialUsed:false}); } });
     };
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
+    loadApp(sb); /* el arranque rescata el redirect pendiente */
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
-      t('sin gsi: cae al popup clásico', popupCalls===1, popupCalls+' llamadas');
-      t('sin gsi: verifica y entra', st.googleOk===true && sb.__els['v-home'].hidden===false, JSON.stringify(st));
+      var trialCalls = fetchCalls.filter(function(c){ return /\/trial/.test(c.url); });
+      var guardado = {};
+      try{ guardado = JSON.parse(sb.localStorage.getItem('lacuota_v1') || '{}'); }catch(e){}
+      t('volviendo del redirect: verifica con el token del usuario real',
+        st.googleOk===true && st.trialStart===999, JSON.stringify(st));
+      t('volviendo del redirect: llamó a /trial con el token de Firebase',
+        trialCalls.length===1 && /TOK_REDIRECT/.test(trialCalls[0].body),
+        trialCalls.length+' llamadas a /trial');
+      t('volviendo del redirect: entra al inicio',
+        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      t('volviendo del redirect: la marca pendiente se consume',
+        guardado.redirectPending!==true, 'redirectPending='+guardado.redirectPending);
       resolve();
-    }, 60);
+    }, 80);
   }));
-  /* 15q (v52/v56): en la app instalada, si se descarta la ventanita de Google,
-     NO se intenta el popup (que se quedaría colgado en una pestaña del
-     sistema) y NO se muestra ningún mensaje: la puerta queda lista en
-     silencio, porque cerrar la ventanita no es un error. */
+  /* 15p (v58): en el navegador (pestaña), el inicio usa el popup clásico:
+     todo queda en la misma página y se verifica con el token del usuario
+     que trae el popup. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
     loadApp(sb);
-    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
+    /* pestaña: sin matchMedia de instalada */
     var popupCalls = 0, redirectCalls = 0;
-    sb.google = { accounts: { id: {
-      initialize: function(cfg){},
-      prompt: function(cb){
-        cb({isSkippedMoment:function(){return false;}, isDismissedMoment:function(){return true;}, isDisplayMoment:function(){return false;}});
-      },
-      cancel: function(){}
-    }}};
-    function FakeProvider(){ this.addScope = function(){}; }
-    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
+    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
     sb.firebase = {
       apps: [], initializeApp: function(){},
       auth: function(){
         return {
           currentUser: null,
-          signInWithCredential: function(){ return Promise.reject({code:'x'}); },
-          signInWithPopup: function(){ popupCalls++; return new Promise(function(){}); },
-          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); }
+          signInWithPopup: function(){ popupCalls++; return Promise.resolve({user:{getIdToken:function(){ return Promise.resolve('TOK_POPUP3'); }}}); },
+          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
+          getRedirectResult: function(){ return Promise.resolve(null); },
+          onAuthStateChanged: function(){ return function(){}; }
+        };
+      }
+    };
+    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
+    sb.fetch = function(){
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ok:true, trialStart:333, trialUsed:false}); } });
+    };
+    sb.__lacuotaSub.verificar();
+    sb.__els['verGoogle']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('pestaña: usa el popup en la misma página',
+        popupCalls===1 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
+      t('pestaña: verifica con el token del popup',
+        st.googleOk===true && st.trialStart===333, JSON.stringify(st));
+      t('pestaña: entra al inicio',
+        sb.__els['v-home'].hidden===false, 'v-home.hidden='+sb.__els['v-home'].hidden);
+      resolve();
+    }, 60);
+  }));
+  /* 15q (v58): si el usuario cierra el popup de Google, no se muestra ningún
+     mensaje: cerrar el popup no es un error. La puerta queda lista, en
+     silencio, y no se cae al redirect. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
+    loadApp(sb);
+    var popupCalls = 0, redirectCalls = 0;
+    function FakeProvider(){ this.addScope = function(){}; this.setCustomParameters = function(){}; }
+    sb.firebase = {
+      apps: [], initializeApp: function(){},
+      auth: function(){
+        return {
+          currentUser: null,
+          signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-closed-by-user'}); },
+          signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
+          getRedirectResult: function(){ return Promise.resolve(null); },
+          onAuthStateChanged: function(){ return function(){}; }
         };
       }
     };
@@ -939,28 +963,25 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     sb.__lacuotaSub.verificar();
     sb.__els['verGoogle']._ev.click();
     setTimeout(function(){
-      var vm = sb.__els['verMsg'];
-      t('descarte en instalada: no se muestra ningún mensaje (cerrar la ventanita no es un error)',
-        vm.hidden===true, 'verMsg.hidden='+vm.hidden+' texto='+vm.textContent);
-      t('descarte en instalada: no intenta popup ni redirect',
-        popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
-      t('descarte en instalada: el botón queda habilitado',
+      t('popup cerrado: no se muestra ningún mensaje',
+        sb.__els['verMsg'].hidden===true,
+        'verMsg.hidden='+sb.__els['verMsg'].hidden+' texto='+sb.__els['verMsg'].textContent);
+      t('popup cerrado: no cae al redirect', redirectCalls===0, redirectCalls+' llamadas');
+      t('popup cerrado: el botón queda habilitado',
         sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
+      t('popup cerrado: sigue sin verificar',
+        sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
       resolve();
     }, 60);
   }));
-  /* 15s (v54): "Cerrar sesión" está en el inicio (no en Ajustes): cierra la
+/* 15s (v54): "Cerrar sesión" está en el inicio (no en Ajustes): cierra la
      sesión de Google y vuelve a mostrar la puerta, sin tocar grupos ni pagos.
-     v55: además deja la marca expectNoSession y apaga el auto-entrar de Google. */
+     v55: además deja la marca expectNoSession. v58: el auto-entrar se apaga forzando el selector de cuenta. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml),
       seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
     loadApp(sb);
-    var signOutCalls = 0, dasCalls = 0;
-    sb.google = { accounts: { id: {
-      cancel: function(){},
-      disableAutoSelect: function(){ dasCalls++; }
-    }}};
+    var signOutCalls = 0;
     sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
       return { signOut:function(){ signOutCalls++; return Promise.resolve(); } };
     }};
@@ -968,7 +989,7 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     setTimeout(function(){
       var st = sb.__lacuotaSub.cuenta();
       t('cerrar sesión: llamó a signOut de Firebase', signOutCalls===1, signOutCalls+' llamadas');
-      t('cerrar sesión: apaga el auto-entrar de Google (disableAutoSelect)', dasCalls===1, dasCalls+' llamadas');
+      t('cerrar sesión: no depende de la librería de Google (ya no se carga gsi)', typeof sb.google==='undefined', typeof sb.google);
       t('cerrar sesión: deja la marca "pedí salir" (expectNoSession)', st.expectNoSession===true, JSON.stringify(st));
       t('cerrar sesión: limpia la verificación', st.googleOk===false, JSON.stringify(st));
       t('cerrar sesión: muestra la puerta de Google', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
@@ -1068,129 +1089,6 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
         resolve();
       });
     });
-  }));
-  /* 15w (v56): si el usuario cierra la ventanita de Google, no se le muestra
-     nada: ni errores ni avisos. La puerta queda lista, en silencio. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml),
-      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:false})});
-    loadApp(sb);
-    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
-    sb.google = { accounts: { id: {
-      initialize: function(){},
-      prompt: function(cb){ cb({isSkippedMoment:function(){return false;}, isDismissedMoment:function(){return true;}}); },
-      cancel: function(){}, disableAutoSelect: function(){}
-    }}};
-    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-      return {
-        currentUser: null,
-        signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
-        signInWithRedirect: function(){ return Promise.resolve(); },
-        signInWithCredential: function(){ return Promise.resolve({user:{getIdToken:function(){return Promise.resolve('x');}}}); }
-      };
-    }};
-    function FakeProvider(){ this.addScope = function(){}; }
-    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.fetch = function(){ return Promise.reject(new Error('offline')); };
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      t('ventanita cerrada: no se muestra ningún mensaje', sb.__els['verMsg'].hidden===true, 'verMsg.hidden='+sb.__els['verMsg'].hidden);
-      t('ventanita cerrada: tampoco se ofrece la vía del navegador (no fue un fallo)', sb.__els['verAlt'].hidden===true, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
-      t('ventanita cerrada: el botón queda listo', sb.__els['verGoogle'].disabled===false, 'disabled='+sb.__els['verGoogle'].disabled);
-      t('ventanita cerrada: sigue sin verificar', sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
-      resolve();
-    }, 60);
-  }));
-  /* 15x (v57): si Google suprime la ventanita (no llama de vuelta tras
-     varios intentos seguidos), la puerta NO se queda colgada en
-     "Verificando tu cuenta…": falla rápido y ofrece entrar desde el
-     navegador, sin intentar popup ni redirect en la instalada. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    /* El sandbox anula setTimeout por diseño; esta prueba necesita
-       temporizadores reales. La espera de FedCM vive dentro del closure
-       de la app, así que se acorta en el código cargado (el valor real,
-       15s, se verifica en la prueba estática). */
-    sb.setTimeout = setTimeout; sb.clearTimeout = clearTimeout;
-    var appCorto = appJs.replace('var FEDCM_ESPERA_MS = 15000;', 'var FEDCM_ESPERA_MS = 40;');
-    ['logica.js','nube.js'].forEach(function(f){
-      vm.runInContext(fs.readFileSync(path.join(DIR,f),'utf8'), sb, {filename:f});
-    });
-    vm.runInContext(appCorto, sb, {filename:'app.js'});
-    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
-    var popupCalls = 0, redirectCalls = 0;
-    sb.google = { accounts: { id: {
-      initialize: function(){},
-      prompt: function(cb){ /* Google suprime la ventanita: jamás llama de vuelta */ },
-      cancel: function(){}
-    }}};
-    function FakeProvider(){ this.addScope = function(){}; }
-    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
-    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-      return {
-        currentUser: null,
-        signInWithPopup: function(){ popupCalls++; return Promise.reject({code:'auth/popup-blocked'}); },
-        signInWithRedirect: function(){ redirectCalls++; return Promise.resolve(); },
-        signInWithCredential: function(){ return Promise.reject({code:'x'}); }
-      };
-    }};
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      t('ventanita suprimida: no se queda colgada esperando', sb.__els['verStep'].hidden===true, 'verStep.hidden='+sb.__els['verStep'].hidden);
-      t('ventanita suprimida: ofrece entrar desde el navegador', sb.__els['verAlt'].hidden===false, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
-      t('ventanita suprimida: no intenta popup ni redirect en la instalada',
-        popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
-      t('ventanita suprimida: el botón queda habilitado para reintentar',
-        sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
-      t('ventanita suprimida: sigue sin verificar', sb.__lacuotaSub.cuenta().googleOk===false, JSON.stringify(sb.__lacuotaSub.cuenta()));
-      resolve();
-    }, 200);
-  }));
-  /* 15x2 (v57): si la ventanita SÍ se mostró (el usuario está eligiendo),
-     la espera se extiende: a los 70ms (cuando la espera corta ya habría
-     fallado) todavía no hay vía alternativa; cuando se agota la espera
-     extendida, aparece. */
-  asyncTests.push(new Promise(function(resolve){
-    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({groups:{g1:{id:'g1',name:'G1',members:{},freq:'M'}}})});
-    sb.setTimeout = setTimeout; sb.clearTimeout = clearTimeout;
-    var appCorto = appJs
-      .replace('var FEDCM_ESPERA_MS = 15000;', 'var FEDCM_ESPERA_MS = 40;')
-      .replace('var FEDCM_ESPERA_ELIGIENDO_MS = 60000;', 'var FEDCM_ESPERA_ELIGIENDO_MS = 120;');
-    ['logica.js','nube.js'].forEach(function(f){
-      vm.runInContext(fs.readFileSync(path.join(DIR,f),'utf8'), sb, {filename:f});
-    });
-    vm.runInContext(appCorto, sb, {filename:'app.js'});
-    sb.matchMedia = function(){ return {matches:true}; }; /* app instalada */
-    var momento = {isDisplayMoment:function(){return true;}, isSkippedMoment:function(){return false;}, isDismissedMoment:function(){return false;}};
-    sb.google = { accounts: { id: {
-      initialize: function(){},
-      prompt: function(cb){ cb(momento); /* la ventanita se mostró; el usuario elige... y no elige */ },
-      cancel: function(){}
-    }}};
-    function FakeProvider(){ this.addScope = function(){}; }
-    FakeProvider.credential = function(idToken){ return {idToken:idToken}; };
-    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
-      return {
-        currentUser: null,
-        signInWithPopup: function(){ return Promise.reject({code:'auth/popup-blocked'}); },
-        signInWithRedirect: function(){ return Promise.resolve(); },
-        signInWithCredential: function(){ return Promise.reject({code:'x'}); }
-      };
-    }};
-    sb.firebase.auth.GoogleAuthProvider = FakeProvider;
-    sb.__lacuotaSub.verificar();
-    sb.__els['verGoogle']._ev.click();
-    setTimeout(function(){
-      t('eligiendo: la espera corta no corta al que está eligiendo', sb.__els['verAlt'].hidden===true, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
-    }, 70);
-    setTimeout(function(){
-      t('eligiendo: agotada la espera extendida, ofrece la vía del navegador', sb.__els['verAlt'].hidden===false, 'verAlt.hidden='+sb.__els['verAlt'].hidden);
-      t('eligiendo: no se queda colgada esperando', sb.__els['verStep'].hidden===true, 'verStep.hidden='+sb.__els['verStep'].hidden);
-      resolve();
-    }, 260);
   }));
   /* 15y (v57): el marcador #entrar-app se consume al arrancar: marca la
      sesión para avisar que vuelva a la app, sin guardarlo como enlace. */

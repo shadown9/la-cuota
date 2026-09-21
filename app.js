@@ -157,10 +157,6 @@ function copyText(txt, okMsg){
    para siempre). Borrar la app o crear otro grupo no da otra prueba.
    La clave API de Firebase es pública por diseño (no es un secreto). */
 var FB_CONFIG = { apiKey:'AIzaSyAuYIetDPremfkyuRzVwgTc-_bZqAjVICU', authDomain:'la-cuota.firebaseapp.com', projectId:'la-cuota', appId:'1:741417625058:web:2fb25755b07783884ac5bb' };
-/* ID de cliente OAuth del proyecto (el mismo que Firebase usa para Google):
-   lo necesita la ventanita nativa de Google (FedCM/One Tap). Es público
-   por diseño: viaja en cada URL de acceso con Google. */
-var GOOGLE_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com';
 /* ¿La app corre instalada (pantalla completa) en vez de en una pestaña? */
 function esInstalada(){
   try{
@@ -168,68 +164,11 @@ function esInstalada(){
            (typeof navigator !== 'undefined' && navigator.standalone === true);
   }catch(e){ return false; }
 }
-/* Ventanita nativa de Google (FedCM/One Tap, librería gsi): muestra el
-   selector de cuenta ENCIMA de la página, sin navegar fuera. Por eso es la
-   única vía confiable en la app instalada: el popup abre una pestaña del
-   sistema que nunca devuelve la sesión, y el redirect pierde su estado al
-   volver. Devuelve el token de Google (JWT) para canjearlo por la sesión
-   de Firebase con signInWithCredential. */
-/* Cuánto se espera a Google antes de rendirse: si la ventanita no se abre
-   en este tiempo (Google la suprime tras varios intentos seguidos), no
-   tiene sentido dejar la puerta colgada en "Verificando tu cuenta…".
-   Si la ventanita SÍ se mostró (el usuario está eligiendo), la espera se
-   extiende para no castigar al que elige despacio. */
-var FEDCM_ESPERA_MS = 15000;
-var FEDCM_ESPERA_ELIGIENDO_MS = 60000;
-function fedcmToken(){
-  return new Promise(function(resolve, reject){
-    var g = null;
-    try{ g = (typeof google !== 'undefined') ? google : null; }catch(e){ g = null; }
-    if(!g || !g.accounts || !g.accounts.id){
-      reject({code:'fedcm/no-disponible'}); return;
-    }
-    var done = false, espera = null;
-    function armarEspera(ms){
-      if(espera){ try{ clearTimeout(espera); }catch(e){} }
-      espera = setTimeout(function(){ fin({code:'fedcm/tiempo-agotado'}); }, ms);
-    }
-    function fin(err, tok){
-      if(done) return; done = true;
-      if(espera){ try{ clearTimeout(espera); }catch(e){} espera = null; }
-      try{ g.accounts.id.cancel(); }catch(e){}
-      if(err) reject(err); else resolve(tok);
-    }
-    /* Red de seguridad: si la librería se queda muda, no colgar la puerta.
-       Se arma ANTES de pedir la ventanita: si la ventanita se muestra, la
-       espera se extiende (el aviso puede llegar en el mismo instante). */
-    armarEspera(FEDCM_ESPERA_MS);
-    try{
-      g.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: function(resp){
-          if(resp && resp.credential) fin(null, resp.credential);
-          else fin({code:'fedcm/sin-credencial'});
-        },
-        auto_select: false
-      });
-      g.accounts.id.prompt(function(notif){
-        /* Este aviso llega cuando la ventanita no se mostró (sin sesión en
-           el navegador, pausa de Chrome, etc.): ahí toca usar otro método.
-           Si la ventanita SÍ se mostró, el usuario está eligiendo y la
-           espera se extiende. */
-        try{
-          if(notif && notif.isDisplayMoment && notif.isDisplayMoment()){
-            armarEspera(FEDCM_ESPERA_ELIGIENDO_MS);
-            return;
-          }
-          if(notif && (notif.isSkippedMoment() || notif.isDismissedMoment())){
-            fin({code:'fedcm/omitido'});
-          }
-        }catch(e){}
-      });
-    }catch(e){ fin({code:'fedcm/no-disponible'}); }
-  });
-}
+/* El inicio con Google es 100% Firebase Auth (sin la ventanita nativa de
+   Google/FedCM): Google rechaza lacuota.org como origen del cliente OAuth
+   (INVALID_ORIGIN en su endpoint de FedCM), así que la ventanita jamás
+   devuelve credencial. El redirect/popup de Firebase corre el intercambio
+   OAuth desde el manejador de firebaseapp.com, que Google sí acepta. */
 var FB_AUTH = {
   ready: function(){
     try{
@@ -243,38 +182,23 @@ var FB_AUTH = {
     var auth = firebase.auth();
     var p = new firebase.auth.GoogleAuthProvider();
     try{ p.addScope('profile'); p.addScope('email'); }catch(e){}
-    var instalada = esInstalada();
-    function viaPopup(){
-      /* En la app instalada el popup abre una pestaña del sistema que nunca
-         devuelve la sesión (se queda colgado): ahí ni se intenta. */
-      if(instalada) return Promise.reject({code:'auth/popup-closed-by-user'});
-      return auth.signInWithPopup(p).catch(function(err){
-        if(err && err.code === 'auth/popup-blocked'){
-          /* Se va a navegar a Google y volver: marcarlo para que al regresar
-             la app sepa que hay una sesión que rescatar. */
-          S.redirectPending = true; save();
-          return auth.signInWithRedirect(p);
-        }
-        throw err;
-      });
+    /* Que Google siempre muestre el selector de cuenta en vez de volver a
+       entrar solo con la anterior (reemplaza al disableAutoSelect de la
+       ventanita nativa). */
+    try{ p.setCustomParameters({prompt:'select_account'}); }catch(e){}
+    /* Se va a navegar a Google y volver: marcarlo para que al regresar
+       la app sepa que hay una sesión que rescatar. */
+    function viaRedirect(){
+      S.redirectPending = true; save();
+      return auth.signInWithRedirect(p);
     }
-    /* Orden: FedCM (ventanita nativa, no sale de la página) → popup →
-       redirect. La credencial de Google se canjea por la sesión de Firebase
-       aquí mismo, así el token que verifica la prueba sale del usuario
-       real, igual que con el popup. */
-    return fedcmToken().then(function(idToken){
-      var credencial = null;
-      try{ credencial = firebase.auth.GoogleAuthProvider.credential(idToken); }
-      catch(e){ throw {code:'fedcm/credencial-mala'}; }
-      return auth.signInWithCredential(credencial);
-    }).catch(function(err){
-      var code = (err && err.code) || '';
-      /* Si el usuario cerró la ventanita, no hay nada que reintentar por
-         otro camino: se propaga tal cual para que la puerta quede en
-         silencio (cerrar la ventanita no es un error). Cualquier otro
-         fallo de FedCM cae al popup clásico. */
-      if(code === 'fedcm/omitido') throw err;
-      if(code.indexOf('fedcm/') === 0) return viaPopup();
+    /* En la app instalada el popup abre una pestaña del sistema que nunca
+       devuelve la sesión: ahí se navega a Google y se vuelve en la misma
+       ventana (redirect). En el navegador, el popup deja todo en la misma
+       página; si el bloqueador lo impide, se cae al redirect. */
+    if(esInstalada()) return viaRedirect();
+    return auth.signInWithPopup(p).catch(function(err){
+      if(err && err.code === 'auth/popup-blocked') return viaRedirect();
       throw err;
     });
   },
@@ -291,16 +215,10 @@ var FB_AUTH = {
     var u = FB_AUTH.user();
     return u ? u.getIdToken() : Promise.resolve(null);
   },
-  /* Cierra la sesión guardada de Google en este teléfono. */
+  /* Cierra la sesión guardada de Google en este teléfono. Al volver a
+     entrar, la página de Google siempre muestra el selector de cuenta,
+     así que no hay auto-entrada silenciosa que apagar. */
   signOut: function(){
-    try{
-      if(typeof google!=='undefined' && google.accounts && google.accounts.id){
-        try{ google.accounts.id.cancel(); }catch(e){}
-        /* Que la próxima vez Google pida elegir la cuenta en vez de
-           volver a entrar solo con la anterior. */
-        try{ google.accounts.id.disableAutoSelect(); }catch(e){}
-      }
-    }catch(e){}
     try{ return firebase.auth().signOut(); }
     catch(e){ return Promise.resolve(); }
   }
@@ -352,8 +270,6 @@ function showVerify(){
   verNext = verNext || null;
   var m = document.getElementById('verMsg');
   if(m){ m.hidden = true; m.textContent=''; }
-  var va = document.getElementById('verAlt');
-  if(va) va.hidden = true;
   var b = document.getElementById('verGoogle');
   if(b) b.disabled = false;
   /* Versión visible en letra pequeña: si algo falla en un teléfono,
@@ -403,7 +319,7 @@ function cuentaVerificar(userObj){
      listo: si ya tenemos el usuario del redirect, usarlo directo para
      evitar rebotar a Google otra vez. */
   function freshSignIn(){
-    /* Con FedCM/popup el usuario llega aquí mismo con su credencial; con
+    /* Con popup el usuario llega aquí mismo con su credencial; con
        redirect la página ya navegó y el resultado se procesa al volver. */
     return FB_AUTH.signIn().then(function(cred){
       if(cred && cred.user && cred.user.getIdToken) return cred.user.getIdToken();
@@ -468,22 +384,11 @@ function cuentaVerificar(userObj){
   }).catch(function(e){
     var code = (e && e.code) || '';
     var emsg = String((e && e.message) || '');
-    if(code === 'fedcm/omitido'){
-      /* El usuario cerró la ventanita de Google: no es un error y no se le
-         muestra nada. La puerta queda lista para cuando quiera intentarlo. */
+    if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
+      /* Cerrar el popup de Google no es un error y no se le muestra nada:
+         la puerta queda lista para cuando quiera intentarlo. (En la app
+         instalada no se usa el popup: se navega a Google con redirect.) */
       verStep(null);
-      if(b) b.disabled=false;
-    }else if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'){
-      if(esInstalada()){
-        /* En la app instalada no existe el popup: este código solo llega
-           aquí cuando la ventanita nativa no pudo abrirse (Google la
-           suprime tras varios intentos seguidos). En vez de dejar la
-           puerta colgada, se ofrece el segundo camino. */
-        mostrarViaNavegador();
-      }else{
-        /* En el navegador, cerrar el popup tampoco es un error. */
-        verStep(null);
-      }
       if(b) b.disabled=false;
     }else if(/rechazado/.test(emsg)){
       msg('Google no autorizó esta cuenta para la prueba. Prueba con otra cuenta de Google.', 'rechazado');
@@ -495,16 +400,6 @@ function cuentaVerificar(userObj){
       msg('No se pudo verificar. Revisa tu internet e inténtalo de nuevo.', code || 'red');
     }
   });
-}
-/* Segundo camino para entrar en la app instalada: si la ventanita nativa
-   de Google no se abre (Google la suprime tras varios intentos seguidos),
-   se abre la misma puerta en el navegador, donde el inicio clásico sí
-   funciona. La sesión queda guardada en el origen compartido y al volver
-   a la app ya se está adentro: no hay que hacer nada más. */
-function mostrarViaNavegador(){
-  verStep(null);
-  var w = document.getElementById('verAlt');
-  if(w) w.hidden = false;
 }
 /* Al volver del redirect de Google, completa la verificación. */
 function cuentaVerificarRedirect(){
@@ -547,6 +442,12 @@ function cuentaVerificarRedirect(){
     var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
   }
   FB_AUTH.redirectResult().then(function(result){
+    /* El redirect ya volvió: la marca se consume aquí mismo, en ambas vías
+       (con o sin usuario en el resultado), para que no quede puesta. Se
+       recuerda si se venía de Google porque el resultado del redirect se
+       entrega una sola vez: el rescate de abajo la necesita. */
+    var veniaDeGoogle = S.redirectPending;
+    if(veniaDeGoogle){ S.redirectPending = false; save(); }
     if(result && result.user){ conUsuario(result.user); return; }
     /* El resultado del redirect se entrega UNA sola vez: si la página se
        recargó después de volver de Google (actualización automática,
@@ -559,11 +460,9 @@ function cuentaVerificarRedirect(){
        teléfono no vale: él pidió salir. Jamás entrar solo. */
     if(S.expectNoSession){ verStep(null); return; }
     /* Solo rescatar una sesión si de verdad se acaba de volver de Google
-       (redirect pendiente). Al arrancar normal no hay nada que esperar:
-       antes se esperaban 4 segundos y se mostraba un aviso sin que el
-       usuario hubiera tocado nada. */
-    var veniaDeGoogle = S.redirectPending;
-    S.redirectPending = false; save();
+       (redirect pendiente, ya consumido arriba). Al arrancar normal no hay
+       nada que esperar: antes se esperaban 4 segundos y se mostraba un
+       aviso sin que el usuario hubiera tocado nada. */
     if(!veniaDeGoogle){ verStep(null); return; }
     verStep('Volviendo de Google…');
     var u0 = null;
@@ -1709,7 +1608,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 57;
+var APP_V = 58;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
