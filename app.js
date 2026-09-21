@@ -841,6 +841,7 @@ function finishOnboarding(){
 /* ---------- MIEMBROS ---------- */
 function openMembers(){
   var g=S.groups[curGid]; if(!g) return;
+  if((location.hash||'') !== '#/g/'+curGid+'/mem') setHash('#/g/'+curGid+'/mem');
   show('v-members'); renderMemList();
   $('memName').value=''; $('memPhone').value='';
   setTimeout(function(){ $('memName').focus(); },100);
@@ -897,6 +898,7 @@ function editMember(id){
 
 /* ---------- HISTORIAL ---------- */
 function openHistory(){
+  if((location.hash||'') !== '#/g/'+curGid+'/hist') setHash('#/g/'+curGid+'/hist');
   show('v-hist');
   var g=S.groups[curGid]; if(!g) return;
   var pays=S.payments[curGid]||{};
@@ -919,6 +921,7 @@ function openHistory(){
 /* ---------- DETALLE DE PERÍODO ---------- */
 function openPeriodDetail(k){
   var g=S.groups[curGid]; if(!g) return;
+  if((location.hash||'') !== '#/g/'+curGid+'/pd/'+k) setHash('#/g/'+curGid+'/pd/'+k);
   var mems=membersOf(curGid);
   var pm=(S.payments[curGid]||{})[k]||{};
   var sum=L.monthSummary(g, mems, pm);
@@ -942,6 +945,7 @@ function openPeriodDetail(k){
 /* ---------- AJUSTES ---------- */
 function openSettings(){
   var g=S.groups[curGid]; if(!g) return;
+  if((location.hash||'') !== '#/g/'+curGid+'/set') setHash('#/g/'+curGid+'/set');
   show('v-settings');
   $('setName').value=g.name; $('setAmount').value=g.amount;
   paintSeg('setCurrency', g.currency);
@@ -1018,6 +1022,7 @@ var FAQS=[
    '30 días gratis. Después US$2 al mes o US$20 al año por grupo. Tus datos nunca se borran.']
 ];
 function renderFaq(from){
+  if(from==='group' && (location.hash||'') !== '#/g/'+curGid+'/faq') setHash('#/g/'+curGid+'/faq');
   show('v-faq');
   var list=$('faqList'); list.innerHTML='';
   FAQS.forEach(function(f){
@@ -1027,7 +1032,7 @@ function renderFaq(from){
     d.querySelector('.fq').addEventListener('click', function(){ d.classList.toggle('open'); });
     list.appendChild(d);
   });
-  $('faqBack').onclick=function(){ if(from==='group') renderGroup(); else renderHome(); };
+  $('faqBack').onclick=function(){ history.back(); };
 }
 
 /* ---------- PAYWALL ---------- */
@@ -1439,12 +1444,12 @@ on('btnSummary', 'click', function(){
     'Resumen copiado. Compártelo donde quieras.');
 });
 
-on('memBack', 'click', renderGroup);
+on('memBack', 'click', function(){ history.back(); });
 on('memAdd', 'click', addMember);
-on('memDone', 'click', renderGroup);
-on('histBack', 'click', renderGroup);
-on('pdBack', 'click', openHistory);
-on('setBack', 'click', renderGroup);
+on('memDone', 'click', function(){ history.back(); });
+on('histBack', 'click', function(){ history.back(); });
+on('pdBack', 'click', function(){ history.back(); });
+on('setBack', 'click', function(){ history.back(); });
 on('setSave', 'click', saveSettings);
 on('setManageSub', 'click', manageSub);
 on('homeSignOut', 'click', cerrarSesion);
@@ -1540,6 +1545,23 @@ window.addEventListener('pageshow', function(e){
     }
   }catch(ex){}
 });
+/* Centinela: impide que el botón de atrás salga de la app desde el inicio.
+   Cuando el usuario navega atrás hasta el hash vacío (#), se empuja una
+   entrada nueva para que el siguiente atrás no cierre la sesión ni salga.
+   hashchange no dispara entre dos entradas con el mismo hash, así que este
+   listener es el único punto donde se puede interceptar ese caso. */
+window.addEventListener('popstate', function(){
+  var h=location.hash||'';
+  if(!h || h==='#'){
+    if(!L.needsVerify(S) && !S.expectNoSession){
+      history.pushState(null,'','#');
+      /* Si llegamos aquí sin que cambiara el hash (ambas entradas eran #),
+         hashchange no disparará; renderHome() ya está visible pero se
+         llama por si acaso para asegurar el estado correcto. */
+      try{ var vv=$('v-home'); if(vv && vv.hidden) renderHome(); }catch(ex){}
+    }
+  }
+});
 function route(){
   var h=location.hash||'';
   if(h.indexOf('#/pago-ok')===0){ pagoOk(); return; }
@@ -1547,8 +1569,24 @@ function route(){
   if(h==='#/terminos'){ showLegal('term'); return; }
   if(h.indexOf('#/ver/')===0){ showReadonly(h.slice(6)); return; }
   if(h.indexOf('#/g/')===0){
-    var gid=h.slice(4);
-    if(S.groups[gid]){ openGroup(gid); return; }
+    var gpath=h.slice(4), gparts=gpath.split('/');
+    var gid=gparts[0], subview=gparts[1], subkey=gparts[2];
+    if(S.groups[gid]){
+      if(subview){
+        /* Sub-vista de un grupo: asegurar curGid y curMonth antes de renderizar. */
+        if(curGid !== gid){
+          curGid=gid;
+          curMonth=S.ui['m_'+gid] || L.periodKey(new Date(), S.groups[gid]);
+          nubeWatch(gid);
+        }
+        if(subview==='mem'){ openMembers(); return; }
+        if(subview==='hist'){ openHistory(); return; }
+        if(subview==='set'){ openSettings(); return; }
+        if(subview==='faq'){ renderFaq('group'); return; }
+        if(subview==='pd' && subkey){ openPeriodDetail(subkey); return; }
+      }
+      openGroup(gid); return;
+    }
     if(nubeLista()){
       toast('Buscando el grupo…');
       CuotaNube.obtener(gid).then(function(remote){
@@ -1672,7 +1710,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 77;
+var APP_V = 78;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
