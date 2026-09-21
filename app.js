@@ -926,6 +926,8 @@ window.__lacuotaSub = {
   plan: function(w){ planExplain(w); },
   trial: function(){ return S.trialStart; },
   recover: function(gid, cb){ fetchGroupToLocal(gid, cb); },
+  /* Pruebas: simula abrir un enlace interno (#/g/...) como lo haría el usuario */
+  enlace: function(h){ try{ location.hash = h; }catch(e){} route(); },
   abrir: function(u){ abrirUrlSegura(u, 'Prueba', 'Toca para abrir.'); },
   reintentar: function(u){ reintentarAbrir(u); },
   /* Verificación con Google (una prueba por cuenta) */
@@ -1268,7 +1270,18 @@ function recoverSheet(){
     if(!nubeLista()){ toast('Sin conexión. Revisa tu internet.'); return; }
     closeSheet(); toast('Buscando el grupo…');
     fetchGroupToLocal(gid, function(ok){
-      if(ok){ toast('Grupo recuperado. 🎉'); setHash(''); renderHome(); }
+      if(ok){
+        toast('Grupo recuperado. 🎉'); setHash('');
+        /* Puerta de Google: recuperar en un teléfono/buscador nuevo no
+           salta la verificación. La puerta del arranque ya pasó (aún no
+           había grupos); se revisa aquí tras importar. */
+        if(L.needsVerify(S)){
+          verNext = function(){ openGroup(gid); };
+          try{ sessionStorage.setItem('lacuota_verHash', '#/g/'+gid); }catch(e){}
+          showVerify(); return;
+        }
+        renderHome();
+      }
       else toast('No encontramos ese grupo. Revisa el enlace.');
     });
   });
@@ -1305,7 +1318,17 @@ function route(){
         }
         if(remote && remote.meta){
           L.applySnapshot(S, gid, remote); S.onboarded=true;
-          limpiarLegados(gid); save(); openGroup(gid);
+          limpiarLegados(gid); save();
+          /* Puerta de Google: abrir el enlace de tesorero en un
+             teléfono/buscador nuevo no salta la verificación. Al arrancar
+             aún no había grupos y la puerta pasó de largo; se revisa aquí
+             tras importar, antes de entrar al grupo. */
+          if(L.needsVerify(S)){
+            verNext = function(){ openGroup(gid); };
+            try{ sessionStorage.setItem('lacuota_verHash', '#/g/'+gid); }catch(e){}
+            showVerify(); return;
+          }
+          openGroup(gid);
         }else{ toast('No se encontró ese grupo.'); renderHome(); }
       });
       return;
@@ -1327,7 +1350,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 45;
+var APP_V = 46;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

@@ -651,6 +651,34 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /id="setDays"/.test(appJs));
   t('ajustes: ya no usa el campo numérico setCut',
     !/\$\('setCut'\)/.test(appJs));
+  /* 15j (v46): el enlace de tesorero en un teléfono nuevo NO salta la
+     puerta. En incógnito no hay grupos al arrancar y la puerta pasa de
+     largo; al importar el grupo por el enlace debe mostrar v-verify
+     antes de dejar entrar. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
+    loadApp(sb);
+    t('incógnito sin grupos: al arrancar no pide verificar (aún no hay nada)',
+      sb.__lacuotaSub.necesitaVerificar()===false);
+    sb.CuotaNube.obtener = function(){ return Promise.resolve({
+      meta:{id:'g1', name:'Grupo de prueba', trialStart:111},
+      members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}
+    }); };
+    sb.location.hash = '#/g/g1';
+    sb.__lacuotaSub.enlace('#/g/g1');
+    setTimeout(function(){
+      t('enlace en teléfono nuevo: tras importar muestra v-verify',
+        sb.__els['v-verify'].hidden===false,
+        'v-verify.hidden='+sb.__els['v-verify'].hidden);
+      t('enlace en teléfono nuevo: no entra al grupo sin verificar',
+        sb.__els['v-group'].hidden===true,
+        'v-group.hidden='+sb.__els['v-group'].hidden);
+      t('enlace en teléfono nuevo: guarda el enlace para retomarlo tras verificar',
+        sb.sessionStorage.getItem('lacuota_verHash')==='#/g/g1',
+        String(sb.sessionStorage.getItem('lacuota_verHash')));
+      resolve();
+    }, 80);
+  }));
 })();
 
 Promise.all(asyncTests).then(function(){
