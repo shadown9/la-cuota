@@ -15,10 +15,12 @@ async function sha256Hex(s) {
 }
 
 /* ---------- Verificación de identidad con Google (una prueba por cuenta) ----------
-   La app inicia sesión con Firebase Auth (Google) y nos envía el ID token.
-   Aquí verificamos la firma con los certificados públicos de Google y
-   registramos la primera vez que esa cuenta usa la prueba gratis.
-   Solo guardamos el hash SHA-256 del ID de usuario, nunca el ID directo. */
+   v63: la app navega directo a Google con PKCE y nos envía el código de un
+   solo uso. Aquí lo canjeamos con Google, verificamos la firma del ID token
+   con los certificados públicos de Google y registramos la primera vez que
+   esa cuenta usa la prueba gratis. Solo guardamos el hash SHA-256 del ID de
+   usuario, nunca el ID directo. Los endpoints viejos /ticket se conservan
+   por compatibilidad pero la app ya no los usa. */
 
 function b64urlToBytes(s) {
   s = String(s).replace(/-/g, '+').replace(/_/g, '/');
@@ -158,6 +160,65 @@ async function verifyFirebaseIdToken(idToken, projectId, fetchCerts) {
     const sig = b64urlToBytes(parts[2]);
     const data = new TextEncoder().encode(parts[0] + '.' + parts[1]);
     const valid = await rsaVerify(k, sig, data);
+    if (!valid) return { ok: false, reason: 'firma' };
+    return { ok: true, sub: payload.sub };
+  } catch (e) {
+    return { ok: false, reason: 'excepcion' };
+  }
+}
+
+/* v63: entrada con Google por PKCE directo (sin Firebase Auth).
+   El cliente OAuth web del proyecto (ID público) acepta como URIs de
+   redireccionamiento solo los registrados en la consola de Google. */
+const GOOGLE_OAUTH_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com';
+const GOOGLE_REDIRECT_URIS = ['https://lacuota.org/', 'https://shadown9.github.io/la-cuota/'];
+
+let oauthCertCache = { at: 0, data: null };
+async function getGoogleOAuthCerts() {
+  if (oauthCertCache.data && Date.now() - oauthCertCache.at < 3600e3) return oauthCertCache.data;
+  const r = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+  if (!r.ok) throw new Error('certs');
+  const data = await r.json();
+  oauthCertCache = { at: Date.now(), data };
+  return data;
+}
+async function importRsaJwk(jwk) {
+  let last = null;
+  for (const name of RSA_NAMES) {
+    try {
+      const key = await crypto.subtle.importKey(
+        'jwk', jwk, { name, hash: 'SHA-256' }, false, ['verify']);
+      return { key, name };
+    } catch (e) { last = e; }
+  }
+  throw last;
+}
+/* Verifica un ID token emitido por Google para nuestro cliente OAuth.
+   Devuelve {ok:true, sub} o {ok:false, reason}. fetchCerts es inyectable
+   para pruebas. */
+async function verifyGoogleIdToken(idToken, clientId, fetchCerts) {
+  try {
+    const parts = String(idToken || '').split('.');
+    if (parts.length !== 3) return { ok: false, reason: 'formato' };
+    const header = JSON.parse(b64urlToString(parts[0]));
+    const payload = JSON.parse(b64urlToString(parts[1]));
+    if (header.alg !== 'RS256' || !header.kid) return { ok: false, reason: 'alg' };
+    const now = Math.floor(Date.now() / 1000);
+    if (!payload.sub || typeof payload.sub !== 'string') return { ok: false, reason: 'sub' };
+    if (payload.aud !== clientId) return { ok: false, reason: 'aud' };
+    if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com')
+      return { ok: false, reason: 'iss' };
+    if (typeof payload.exp !== 'number' || payload.exp < now - 60) return { ok: false, reason: 'exp' };
+    if (payload.iat && payload.iat > now + 60) return { ok: false, reason: 'iat' };
+    const certs = await (fetchCerts || getGoogleOAuthCerts)();
+    const jwk = ((certs && certs.keys) || []).find(k => k.kid === header.kid);
+    if (!jwk) return { ok: false, reason: 'kid' };
+    let k;
+    try { k = await importRsaJwk(jwk); }
+    catch (e) { return { ok: false, reason: 'llave' }; }
+    const sig = b64urlToBytes(parts[2]);
+    const data = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+    const valid = await crypto.subtle.verify({ name: k.name, hash: 'SHA-256' }, k.key, sig, data);
     if (!valid) return { ok: false, reason: 'firma' };
     return { ok: true, sub: payload.sub };
   } catch (e) {
@@ -316,6 +377,53 @@ export default {
         trialActive: rec.trialActive, trialExpired: rec.trialExpired });
     }
 
+    // ---- v63: canje del código de Google (PKCE directo) ----
+    // La app regresa de Google con ?code=...&state=... en su propia
+    // dirección. Aquí se canjea con Google (PKCE), se verifica el ID token
+    // y se devuelve el estado de la prueba de esa cuenta.
+    // POST /google/code {code, verifier, redirectUri} -> {ok, sub, ...trial}
+    if (url.pathname === '/google/code' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return json({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const code = String((body && body.code) || '');
+      const verifier = String((body && body.verifier) || '');
+      const redirectUri = String((body && body.redirectUri) || '');
+      if (!/^[A-Za-z0-9\-_~.]{10,512}$/.test(code) ||
+          !/^[A-Za-z0-9\-_~.]{43,128}$/.test(verifier) ||
+          GOOGLE_REDIRECT_URIS.indexOf(redirectUri) < 0) {
+        return json({ ok: false, reason: 'entrada' }, 400);
+      }
+      let tok = null;
+      try {
+        const tr = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: 'code=' + encodeURIComponent(code) +
+                '&client_id=' + encodeURIComponent(GOOGLE_OAUTH_CLIENT_ID) +
+                '&code_verifier=' + encodeURIComponent(verifier) +
+                '&redirect_uri=' + encodeURIComponent(redirectUri) +
+                '&grant_type=authorization_code',
+        });
+        try { tok = { ok: tr.ok, d: await tr.json() }; }
+        catch (e2) { tok = { ok: false, d: null }; }
+      } catch (e) { tok = { ok: false, d: null }; }
+      if (!tok.ok || !tok.d || !tok.d.id_token) {
+        /* invalid_grant = código vencido, mal verifier o ya canjeado
+           (otra ventana lo usó): la app espera la sesión verificada. */
+        if (tok.d && tok.d.error === 'invalid_grant')
+          return json({ ok: false, reason: 'codigo_usado' }, 400);
+        return json({ ok: false, reason: 'google' }, 400);
+      }
+      const v = await verifyGoogleIdToken(tok.d.id_token, GOOGLE_OAUTH_CLIENT_ID);
+      if (!v.ok) return json({ ok: false, reason: 'permiso' }, 401);
+      const st = await trialState(env, v.sub);
+      return json(Object.assign({ ok: true, sub: v.sub }, st));
+    }
+
     // ---- Verificación de suscripción (la app llama aquí) ----
     if (url.pathname === '/sub' && req.method === 'GET') {
       const email = (url.searchParams.get('email') || '').toLowerCase().trim();
@@ -446,4 +554,4 @@ function json(obj, status = 200) {
 }
 
 /* Exportadas para las pruebas (node). */
-export { verifyFirebaseIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey };
+export { verifyFirebaseIdToken, verifyGoogleIdToken, derFindSpki, pemToDer, b64urlToBytes, sha256Hex, importRsaKey };

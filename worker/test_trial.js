@@ -193,6 +193,80 @@ function b64url(obj) {
     rdV.body.trialStart === inicioViejo && rdV.body.trialExpired === true,
     JSON.stringify(rdV.body).slice(0, 120));
 
+  /* 5. v63: ID token de Google (PKCE directo) + POST /google/code.
+     El worker canjea el código con Google y verifica el ID token contra
+     el cliente OAuth del proyecto. */
+  const GOOGLE_CID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com';
+  const pubJwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
+  pubJwk.kid = 'testkid';
+  const fetchGoogleCerts = async () => ({ keys: [pubJwk] });
+  const gbase = { sub: 'google-user-1', aud: GOOGLE_CID, iss: 'https://accounts.google.com', iat: now - 10, exp: now + 3600 };
+  const g1 = await W.verifyGoogleIdToken(await mint(gbase), GOOGLE_CID, fetchGoogleCerts);
+  t('ID token de Google válido se acepta', g1.ok === true && g1.sub === 'google-user-1', JSON.stringify(g1));
+  const g2 = await W.verifyGoogleIdToken(await mint(Object.assign({}, gbase, { aud: 'otro-cliente' })), GOOGLE_CID, fetchGoogleCerts);
+  t('ID token con aud de otro cliente se rechaza', !g2.ok && g2.reason === 'aud', g2.reason);
+  const g3 = await W.verifyGoogleIdToken(await mint(Object.assign({}, gbase, { iss: 'https://evil.com' })), GOOGLE_CID, fetchGoogleCerts);
+  t('ID token con iss falso se rechaza', !g3.ok && g3.reason === 'iss', g3.reason);
+  const gtok4 = await mint(gbase);
+  const g4 = await W.verifyGoogleIdToken(gtok4.slice(0, -4) + 'AAAA', GOOGLE_CID, fetchGoogleCerts);
+  t('ID token con firma manipulada se rechaza', !g4.ok && g4.reason === 'firma', g4.reason);
+  const g5 = await W.verifyGoogleIdToken(await mint(gbase, 'otro-kid'), GOOGLE_CID, fetchGoogleCerts);
+  t('ID token con kid desconocido se rechaza', !g5.ok && g5.reason === 'kid', g5.reason);
+  const g6 = await W.verifyGoogleIdToken(await mint(Object.assign({}, gbase, { exp: now - 3600 })), GOOGLE_CID, fetchGoogleCerts);
+  t('ID token vencido se rechaza', !g6.ok && g6.reason === 'exp', g6.reason);
+  const g7 = await W.verifyGoogleIdToken('no-es-un-jwt', GOOGLE_CID, fetchGoogleCerts);
+  t('ID token malformado se rechaza', !g7.ok && g7.reason === 'formato', g7.reason);
+
+  /* Ruta completa: el canje con Google se simula; los certificados también. */
+  let googleTokenRespuesta = null;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.indexOf('securetoken@system.gserviceaccount.com') >= 0) {
+      return new Response(JSON.stringify({ testkid: certPem }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (u.indexOf('oauth2.googleapis.com/token') >= 0) {
+      if (!googleTokenRespuesta) return new Response('{}', { status: 500 });
+      return new Response(JSON.stringify(googleTokenRespuesta),
+        { status: googleTokenRespuesta._http || 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (u.indexOf('oauth2/v3/certs') >= 0) {
+      return new Response(JSON.stringify({ keys: [pubJwk] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+  async function postCode(body, ip) {
+    const req = new Request('https://x/google/code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip || '9.9.9.9' },
+      body: JSON.stringify(body),
+    });
+    const res = await W.default.fetch(req, env);
+    return { status: res.status, body: await res.json() };
+  }
+  const buenIdToken = await mint(gbase);
+  googleTokenRespuesta = { id_token: buenIdToken };
+  const c1 = await postCode({ code: 'codigo-valido-1234567890', verifier: 'v'.repeat(64), redirectUri: 'https://lacuota.org/' });
+  t('/google/code canjea y registra la prueba', c1.status === 200 && c1.body.ok === true &&
+    c1.body.sub === 'google-user-1' && c1.body.trialStart > 0 && c1.body.trialActive === true,
+    JSON.stringify(c1.body).slice(0, 120));
+  const c1b = await postCode({ code: 'otro-codigo-1234567890', verifier: 'v'.repeat(64), redirectUri: 'https://shadown9.github.io/la-cuota/' });
+  t('/google/code acepta el segundo URI registrado', c1b.status === 200 && c1b.body.ok === true, c1b.status);
+  const c2 = await postCode({ code: 'x'.repeat(20), verifier: 'corto', redirectUri: 'https://lacuota.org/' });
+  t('/google/code rechaza verifier corto (entrada)', c2.status === 400 && c2.body.reason === 'entrada', c2.status);
+  const c3 = await postCode({ code: 'x'.repeat(20), verifier: 'v'.repeat(64), redirectUri: 'https://maligno.com/' });
+  t('/google/code rechaza redirectUri no registrado (entrada)', c3.status === 400 && c3.body.reason === 'entrada', c3.status);
+  googleTokenRespuesta = { _http: 400, error: 'invalid_grant', error_description: 'ya usado' };
+  const c4 = await postCode({ code: 'codigo-ya-usado-1234567890', verifier: 'v'.repeat(64), redirectUri: 'https://lacuota.org/' });
+  t('/google/code con código ya usado → codigo_usado', c4.status === 400 && c4.body.reason === 'codigo_usado', JSON.stringify(c4.body));
+  googleTokenRespuesta = { otro: 'campo' };
+  const c5 = await postCode({ code: 'codigo-sin-token-1234567890', verifier: 'v'.repeat(64), redirectUri: 'https://lacuota.org/' });
+  t('/google/code sin id_token de Google → google', c5.status === 400 && c5.body.reason === 'google', JSON.stringify(c5.body));
+  googleTokenRespuesta = { id_token: await mint(Object.assign({}, gbase, { aud: 'otro-cliente' })) };
+  const c6 = await postCode({ code: 'codigo-mal-aud-1234567890', verifier: 'v'.repeat(64), redirectUri: 'https://lacuota.org/' });
+  t('/google/code con ID token de otro cliente → permiso', c6.status === 401 && c6.body.reason === 'permiso', JSON.stringify(c6.body));
+
   console.log('\n' + count + ' pruebas, ' + failures + ' fallos');
   process.exit(failures ? 1 : 0);
 })().catch(e => { console.error('ERROR', e); process.exit(1); });
