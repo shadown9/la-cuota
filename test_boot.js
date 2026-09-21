@@ -778,6 +778,8 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /if\(instalada\) return Promise\.reject\(\{code:'auth\/popup-closed-by-user'\}\)/.test(appJs));
   t('v-verify muestra la versión en letra pequeña (verVer)',
     /id="verVer"/.test(indexHtml) && /getElementById\('verVer'\)/.test(appJs));
+  t('v53: Ajustes tiene "Cerrar sesión" (setSignOut)',
+    /id="setSignOut"/.test(indexHtml) && /on\('setSignOut', 'click', cerrarSesion\)/.test(appJs));
   /* 15o (v52): en la app instalada la ventanita nativa de Google (FedCM)
      devuelve el token sin salir de la página; se canjea por la sesión de
      Firebase y la prueba se verifica con el token del usuario real. */
@@ -902,6 +904,29 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
         popupCalls===0 && redirectCalls===0, 'popup='+popupCalls+' redirect='+redirectCalls);
       t('descarte en instalada: el botón queda habilitado',
         sb.__els['verGoogle'].disabled===false, String(sb.__els['verGoogle'].disabled));
+      resolve();
+    }, 60);
+  }));
+  /* 15r (v53): "Cerrar sesión" en Ajustes cierra la sesión de Google y
+     vuelve a mostrar la puerta, sin tocar los grupos ni los pagos. */
+  asyncTests.push(new Promise(function(resolve){
+    var sb = psb({ids: idsFromHtml(indexHtml),
+      seed: seed({groups:{g1:{id:'g1',name:'G1'}}, googleOk:true})});
+    loadApp(sb);
+    var signOutCalls = 0;
+    sb.firebase = { apps:[], initializeApp:function(){}, auth:function(){
+      return { signOut:function(){ signOutCalls++; return Promise.resolve(); } };
+    }};
+    sb.__els['setSignOut']._ev.click();
+    setTimeout(function(){
+      var st = sb.__lacuotaSub.cuenta();
+      t('cerrar sesión: llamó a signOut de Firebase', signOutCalls===1, signOutCalls+' llamadas');
+      t('cerrar sesión: limpia la verificación', st.googleOk===false, JSON.stringify(st));
+      t('cerrar sesión: muestra la puerta de Google', sb.__els['v-verify'].hidden===false, 'v-verify.hidden='+sb.__els['v-verify'].hidden);
+      t('cerrar sesión: la puerta vuelve a pedir verificación (grupos intactos)',
+        sb.__lacuotaSub.necesitaVerificar()===true, String(sb.__lacuotaSub.necesitaVerificar()));
+      t('cerrar sesión: la puerta muestra la versión en letra pequeña',
+        /^v\d+$/.test(sb.__els['verVer'].textContent), sb.__els['verVer'].textContent);
       resolve();
     }, 60);
   }));

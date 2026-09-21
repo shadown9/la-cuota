@@ -260,6 +260,16 @@ var FB_AUTH = {
   token: function(){
     var u = FB_AUTH.user();
     return u ? u.getIdToken() : Promise.resolve(null);
+  },
+  /* Cierra la sesión guardada de Google en este teléfono. */
+  signOut: function(){
+    try{
+      if(typeof google!=='undefined' && google.accounts && google.accounts.id){
+        try{ google.accounts.id.cancel(); }catch(e){}
+      }
+    }catch(e){}
+    try{ return firebase.auth().signOut(); }
+    catch(e){ return Promise.resolve(); }
   }
 };
 
@@ -502,6 +512,21 @@ function cuentaVerificarRedirect(){
     if(m){ m.hidden=false; m.textContent='No se pudo volver de Google. Toca el botón de nuevo.'; }
     var b=document.getElementById('verGoogle'); if(b) b.disabled=false;
   });
+}
+
+/* Cierra la sesión de Google y vuelve a mostrar la puerta: sirve para
+   cambiar de cuenta y para probar la ventana de Google en la app
+   instalada. No toca los grupos, miembros ni pagos; al volver a entrar,
+   el servidor realinea la prueba con la fecha original (nunca la
+   extiende en el reingreso), así no se pierde ni se regala nada. */
+function cerrarSesion(){
+  S.googleOk = false; S.googleSub = ''; save();
+  verNext = function(){ renderHome(); };
+  function puerta(){ showVerify(); }
+  try{
+    var r = FB_AUTH.signOut();
+    if(r && r.then) r.then(puerta, puerta); else puerta();
+  }catch(e){ puerta(); }
 }
 
 /* ---------- navegación ---------- */
@@ -1399,6 +1424,7 @@ on('pdBack', 'click', openHistory);
 on('setBack', 'click', renderGroup);
 on('setSave', 'click', saveSettings);
 on('setManageSub', 'click', manageSub);
+on('setSignOut', 'click', cerrarSesion);
 on('setDelete', 'click', function(){
   var b=$('setDelete'), g=S.groups[curGid];
   if(b.dataset.confirm==='1'){
@@ -1569,7 +1595,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 52;
+var APP_V = 53;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
