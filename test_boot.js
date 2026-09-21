@@ -479,6 +479,8 @@ asyncTests.push(new Promise(function(resolve){
 t('existe la pantalla de verificación en el HTML',
   /id="v-verify"/.test(indexHtml) && /id="verGoogle"/.test(indexHtml) && /id="verMsg"/.test(indexHtml));
 t('v-verify está en la lista de vistas', /'v-verify'/.test(appJs));
+t('v-verify vende la app antes de pedir Google (qué es + beneficios)',
+  /verify-perks/.test(indexHtml) && /organiza el dinero de tu grupo/.test(indexHtml));
 t('Firebase Auth se carga (compat, sin bloquear si no hay red)',
   /firebase-app-compat\.js/.test(indexHtml) && /firebase-auth-compat\.js/.test(indexHtml));
 t('la verificación habla con el worker (/trial)', /\/trial/.test(appJs) && /TRIAL_URL/.test(appJs));

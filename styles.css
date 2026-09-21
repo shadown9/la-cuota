@@ -255,6 +255,11 @@ input:focus{border-bottom-color:var(--ink)}
   font-size:32px;font-weight:700;color:#4285F4}
 .verify-card h1{font-size:24px;margin:0 0 12px}
 .verify-card p{color:#555;font-size:15px;line-height:1.55}
+.verify-sub{font-size:16px !important;color:var(--ink) !important;font-weight:500}
+.verify-perks{list-style:none;margin:20px 0 22px;padding:0;display:inline-block;text-align:left}
+.verify-perks li{font-size:15px;color:#333;margin:10px 0;display:flex;align-items:center;gap:10px}
+.vp-ico{width:26px;height:26px;border-radius:50%;background:#e7f6ec;color:#1a9e4b;
+  display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex:none}
 .verify-card .fine{font-size:13px;color:#8e8e93;margin-top:14px}
 #verMsg{color:#b00020;font-weight:600}
 .btn-google{
