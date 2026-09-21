@@ -641,6 +641,16 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
      (autoridad), sin importar si había prueba local. */
   t('al verificar se adopta la fecha del servidor',
     /S\.trialStart = S\.googleTrialStart;/.test(appJs));
+  /* 16: el día de cierre mensual se elige tocando (botones 1-28), sin
+     escribir el número a mano: ni al crear el grupo ni en ajustes. */
+  t('crear grupo: día del mes con botones para tocar (obDays)',
+    /id="obDays"/.test(appJs) && /segDays/.test(appJs));
+  t('crear grupo: ya no pide el número a mano (sin input numérico de día)',
+    !/¿Qué día del mes cierran\?';\s*\n?\s*f\.innerHTML='<input/.test(appJs));
+  t('ajustes: día de corte con botones para tocar (setDays)',
+    /id="setDays"/.test(appJs));
+  t('ajustes: ya no usa el campo numérico setCut',
+    !/\$\('setCut'\)/.test(appJs));
 })();
 
 Promise.all(asyncTests).then(function(){

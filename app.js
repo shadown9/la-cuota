@@ -566,10 +566,16 @@ function obStep(n){
     });
   }else{
     q.textContent='¿Qué día del mes cierran?';
-    f.innerHTML='<input id="obIn" type="number" min="1" max="28" inputmode="numeric" placeholder="5" style="margin-top:6px">'+
-      '<p class="fine">Del día 1 al 28. La cuota de cada mes se cuenta desde ese día.</p>';
-    $('obIn').value=obDraft.cut;
-    setTimeout(function(){ $('obIn').focus(); },50);
+    var dh='<div class="segDays" id="obDays">';
+    for(var d=1;d<=28;d++) dh+='<button data-d="'+d+'">'+d+'</button>';
+    dh+='</div><p class="fine">Toca el día. La cuota de cada mes se cuenta desde ese día.</p>';
+    f.innerHTML=dh;
+    paintSegF('obDays', obDraft.cut, 'data-d');
+    $('obDays').querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        obDraft.cut=b.getAttribute('data-d'); paintSegF('obDays', obDraft.cut, 'data-d');
+      });
+    });
   }
 
   nx.onclick=function(){
@@ -587,11 +593,9 @@ function obStep(n){
         obDraft.freq==='semana' ? ['diaSemana'] : ['diaMes']);
       obStep(n+1);
     }else{
-      if(step==='diaMes'){
-        var c=parseInt($('obIn').value,10);
-        if(!c||c<1||c>28){ toast('Usa un día del 1 al 28.'); return; }
-        obDraft.cut=c;
-      }
+      /* diaSemana y diaMes se eligen tocando: obDraft.cut/cutWeekday ya
+         quedaron guardados al tocar. El día mensual siempre es válido
+         (1-28, con 5 por defecto), no hay nada que validar. */
       finishOnboarding();
     }
   };
@@ -760,9 +764,16 @@ function renderAnchorSetting(g){
     });
     return;
   }
-  w.innerHTML='<label class="flabel">Día de corte del mes</label>'+
-    '<input id="setCut" type="number" min="1" max="28" inputmode="numeric">';
-  $('setCut').value=g.cutDay||5;
+  var cd=Math.min(Math.max(parseInt(g.cutDay,10)||5,1),28);
+  var sh='<label class="flabel">Día de corte del mes</label><div class="segDays" id="setDays">';
+  for(var sd=1;sd<=28;sd++) sh+='<button data-d="'+sd+'" class="'+(sd===cd?'on':'')+'">'+sd+'</button>';
+  w.innerHTML=sh+'</div><p class="fine">Toca el día de corte.</p>';
+  $('setDays').querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click', function(){
+      $('setDays').querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
 }
 function saveSettings(){
   var g=S.groups[curGid]; if(!g) return;
@@ -772,9 +783,8 @@ function saveSettings(){
   if(!name){ toast('El grupo necesita un nombre.'); return; }
   if(!amount||amount<=0){ toast('Revisa el monto.'); return; }
   if(f==='mes'){
-    var cut=parseInt($('setCut').value,10);
-    if(!cut||cut<1||cut>28){ toast('El día de corte va del 1 al 28.'); return; }
-    g.cutDay=cut;
+    var onD=$('setDays') && $('setDays').querySelector('button.on');
+    g.cutDay=onD?parseInt(onD.getAttribute('data-d'),10):(g.cutDay||5);
   }else if(f==='semana'){
     var on=$('setWd').querySelector('button.on');
     g.cutWeekday=on?parseInt(on.getAttribute('data-w'),10):0;
@@ -1317,7 +1327,7 @@ if('serviceWorker' in navigator){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 44;
+var APP_V = 45;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
