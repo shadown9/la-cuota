@@ -1201,7 +1201,19 @@ function dgService(){
       if(!s) return {err:'tienda-nula'};
       _dgSvc = s; return {svc:s};
     })
-    .catch(function(e){ return {err:'rechazo:'+((e&&e.message)?e.message:String(e))}; });
+    .catch(function(e){
+      /* Diagnóstico completo: la tienda a veces rechaza sin mensaje; se
+         serializa nombre, mensaje, código y JSON para ver el motivo real. */
+      var det = '';
+      try{
+        det = (e && e.name ? e.name : '?') + '|' +
+              (e && e.message ? e.message : '(sin mensaje)') + '|' +
+              (e && typeof e.code !== 'undefined' ? 'code='+e.code : 'nocode');
+        var js = JSON.stringify(e);
+        if(js && js !== '{}') det += '|' + js.slice(0,120);
+      }catch(x){ det = String(e).slice(0,160); }
+      return {err:'rechazo:'+det};
+    });
 }
 /* Texto claro del porqué no se pudo abrir el pago de la tienda. */
 function dgErrorTexto(err){
@@ -1880,7 +1892,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 87;
+var APP_V = 88;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
