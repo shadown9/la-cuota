@@ -1186,6 +1186,12 @@ function payCheck(email){
 var PLAY_SKUS = ['lacuota_mensual', 'lacuota_anual'];
 var PLAY_PKG = 'org.lacuota.app';
 function esAndroidTWA(){ return (typeof window !== 'undefined' && typeof window.getDigitalGoodsService === 'function'); }
+/* TWA de verdad (abierta desde la app instalada por la tienda) vs acceso
+   directo de la página (PWA): solo la primera puede usar el pago de la tienda. */
+function esTWAReal(){
+  try{ return (document.referrer || '').indexOf('android-app://org.lacuota.app') === 0; }
+  catch(e){ return false; }
+}
 var _dgSvc = null;
 function dgService(){
   if(_dgSvc) return Promise.resolve({svc:_dgSvc});
@@ -1237,7 +1243,16 @@ function comprarPlay(which){
   toast('Abriendo el pago…');
   dgService().then(function(r){
     var svc = r && r.svc;
-    if(!svc){ planExplainPlayError(which, dgErrorTexto(r && r.err)); return; }
+    if(!svc){
+      var msg;
+      if(!esTWAReal()){
+        msg = 'Parece que abriste el acceso directo de la página. Para pagar, abre la aplicación instalada desde la tienda.';
+      }else{
+        msg = dgErrorTexto(r && r.err);
+      }
+      planExplainPlayError(which, msg);
+      return;
+    }
     var sku = (which==='yearly') ? 'lacuota_anual' : 'lacuota_mensual';
     var precio = (which==='yearly') ? '40.00' : '4.00';
     var pr;
@@ -1862,7 +1877,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 85;
+var APP_V = 86;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1926,20 +1941,21 @@ function bootFail(){
    bloquea con "Actualizando…" y recarga con el código nuevo; si no,
    sigue con seguirArranque. Sin internet o si tarda, sigue igual con lo
    que hay (nunca pantalla clavada). */
+/* v86: verifica la versión ANTES de dejar operar, pero JAMÁS se queda
+   clavada. Si hay una más nueva, la intenta traer unos segundos y recarga
+   cuando el SW nuevo toma el control; si el intento se atasca por lo que
+   sea, se entra con el código actual y el chequeo periódico trae la
+   versión nueva solo. Plazo máximo absoluto: a los 10 s se entra, pase lo
+   que pase. Un "Actualizando…" eterno es peor que operar unos minutos con
+   el código anterior. */
 function actualizarAntesDeEntrar(codigo){
   var done = false;
   function seguir(){ if(done) return; done = true; seguirArranque(codigo); }
   if(!('serviceWorker' in navigator)){ seguir(); return; }
-  /* Si ya forzamos un reload y el SW aún no tomó el control, dejamos pasar al usuario
-     para no quedar en bucle infinito de "Actualizando…". */
-  try{
-    if(sessionStorage.getItem('lacuota_reload_tried')){
-      sessionStorage.removeItem('lacuota_reload_tried');
-      seguir();
-      return;
-    }
-  }catch(e){}
-  var to = setTimeout(seguir, 4000);
+  /* Plazo máximo absoluto: nunca pantalla clavada, ni siquiera si la
+     actualización se atasca a mitad de camino. */
+  var hardTo = setTimeout(seguir, 10000);
+  var to = setTimeout(function(){ clearTimeout(hardTo); seguir(); }, 4000);
   try{
     fetch('version.json?ts='+Date.now(), {cache:'no-store'})
       .then(function(r){ return r.json(); })
@@ -1947,35 +1963,38 @@ function actualizarAntesDeEntrar(codigo){
         if(done) return;
         if(d && d.v && d.v > APP_V){
           clearTimeout(to);
-          /* Solo bloquear si de verdad se puede actualizar: sin registro
-             del service worker no hay cómo traer el código nuevo. */
+          /* Hay versión nueva: se intenta traer, pero sin bloquear. Si el
+             SW nuevo toma el control, se recarga con el código nuevo; si
+             no, se entra con el actual. */
           try{
             navigator.serviceWorker.getRegistration().then(function(reg){
-              if(done) return;
-              if(!reg){ seguir(); return; }
-              done = true;
+              if(done || !reg) return;
               /* El guardián no debe interferir: la app está actualizando a propósito. */
               window.__lacuotaBooted = true;
               mostrarEntrando();
               verStep('Actualizando…');
               var recargado = false;
-              function recargar(){ if(recargado) return; recargado = true; try{ location.reload(); }catch(e){} }
+              function recargar(){
+                if(recargado || done) return; recargado = true;
+                clearTimeout(hardTo);
+                try{ location.reload(); }catch(e){ seguir(); }
+              }
               try{ reg.update().catch(function(){}); }catch(e){}
               try{
                 navigator.serviceWorker.addEventListener('controllerchange', recargar);
               }catch(e2){}
-              /* Si el controllerchange no llega en 12 s, forzamos reload pero marcamos
-                 que ya lo intentamos para no quedar en bucle. */
+              /* Si el SW nuevo no toma el control pronto, no se insiste:
+                 se entra con el código actual y el chequeo periódico
+                 completa la actualización solo. */
               setTimeout(function(){
-                try{ sessionStorage.setItem('lacuota_reload_tried','1'); }catch(e){}
-                recargar();
-              }, 12000);
-            }).catch(function(){ if(!done) seguir(); });
-          }catch(e){ if(!done) seguir(); }
-        }else{ clearTimeout(to); seguir(); }
+                if(!recargado){ clearTimeout(hardTo); seguir(); }
+              }, 5000);
+            }).catch(function(){});
+          }catch(e){}
+        }else{ clearTimeout(to); clearTimeout(hardTo); seguir(); }
       })
-      .catch(function(){ clearTimeout(to); seguir(); });
-  }catch(e){ clearTimeout(to); seguir(); }
+      .catch(function(){ clearTimeout(to); clearTimeout(hardTo); seguir(); });
+  }catch(e){ clearTimeout(to); clearTimeout(hardTo); seguir(); }
 }
 function seguirArranque(codigo){
   bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
