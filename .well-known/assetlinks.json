@@ -1,0 +1,11 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "org.lacuota.app",
+    "sha256_cert_fingerprints": [
+      "3F:EC:A5:4C:90:2B:AA:AE:69:12:97:A4:DA:AE:3C:49:9B:E4:5E:AE:59:AB:EA:9E:D2:AC:0E:0F:80:5B:95:59",
+      "45:78:81:2E:39:45:37:F4:16:4C:81:5A:BA:A5:F3:AD:A8:3C:C6:EB:8A:3F:14:D8:0A:B7:D7:00:04:CF:D2:3C"
+    ]
+  }
+}]
