@@ -1244,11 +1244,14 @@ function comprarPlay(which){
   dgService().then(function(r){
     var svc = r && r.svc;
     if(!svc){
-      var msg;
+      /* Siempre se muestra el motivo crudo de la tienda: es el dato que
+         distingue un acceso directo (unsupported context) de un problema
+         real de la tienda en la TWA. El referrer no es 100% fiable en un
+         arranque en frío, así que el aviso del acceso directo es solo
+         una pista, nunca reemplaza el error real. */
+      var msg = dgErrorTexto(r && r.err);
       if(!esTWAReal()){
-        msg = 'Parece que abriste el acceso directo de la página. Para pagar, abre la aplicación instalada desde la tienda.';
-      }else{
-        msg = dgErrorTexto(r && r.err);
+        msg += ' Si abriste un acceso directo de la página en vez de la aplicación instalada desde la tienda, abre la de la tienda.';
       }
       planExplainPlayError(which, msg);
       return;
@@ -1877,7 +1880,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 86;
+var APP_V = 87;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
