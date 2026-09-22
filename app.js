@@ -1188,11 +1188,31 @@ var PLAY_PKG = 'org.lacuota.app';
 function esAndroidTWA(){ return (typeof window !== 'undefined' && typeof window.getDigitalGoodsService === 'function'); }
 var _dgSvc = null;
 function dgService(){
-  if(_dgSvc) return Promise.resolve(_dgSvc);
-  if(!esAndroidTWA()) return Promise.resolve(null);
+  if(_dgSvc) return Promise.resolve({svc:_dgSvc});
+  if(!esAndroidTWA()) return Promise.resolve({err:'sin-api'});
   return window.getDigitalGoodsService('https://play.google.com/billing')
-    .then(function(s){ _dgSvc = s; return s; })
-    .catch(function(){ return null; });
+    .then(function(s){
+      if(!s) return {err:'tienda-nula'};
+      _dgSvc = s; return {svc:s};
+    })
+    .catch(function(e){ return {err:'rechazo:'+((e&&e.message)?e.message:String(e))}; });
+}
+/* Texto claro del porqué no se pudo abrir el pago de la tienda. */
+function dgErrorTexto(err){
+  if(err==='sin-api') return 'Este dispositivo no trae el servicio de pagos de la tienda.';
+  if(err==='tienda-nula') return 'La tienda no entregó el servicio de pagos. Abre la tienda una vez y vuelve a intentar.';
+  return 'La tienda no respondió. Vuelve a intentar.';
+}
+/* Reabre la explicación del plan con el error visible y botón de reintento. */
+function planExplainPlayError(which, msg){
+  var anual = which === 'yearly';
+  openSheet('<h3>Plan '+(anual?'Anual':'Mensual')+'</h3>'+
+    '<p class="sub"><b>'+(anual?'$40 al año':'$4 al mes')+'</b> por tu cuenta · grupos ilimitados.</p>'+
+    '<p class="sub"><b>No se pudo abrir el pago:</b> '+esc(msg)+'</p>'+
+    '<button class="btn-primary btn-block" id="planGoPay">Reintentar el pago</button>'+
+    '<button class="linkbtn" id="planBack">Atrás</button>');
+  on('planBack', 'click', closeSheet);
+  on('planGoPay', 'click', function(){ closeSheet(); comprarPlay(which); });
 }
 function playVerificar(purchaseToken, productId){
   return fetch(PAY_VERIFY_URL + '/play-verify', {method:'POST',
@@ -1215,8 +1235,9 @@ function playEstado(){
 function comprarPlay(which){
   if(!S.googleSub){ toast('Entra con tu cuenta primero.'); return; }
   toast('Abriendo el pago…');
-  dgService().then(function(svc){
-    if(!svc){ toast('El pago de la tienda no está disponible aquí.'); return; }
+  dgService().then(function(r){
+    var svc = r && r.svc;
+    if(!svc){ planExplainPlayError(which, dgErrorTexto(r && r.err)); return; }
     var sku = (which==='yearly') ? 'lacuota_anual' : 'lacuota_mensual';
     var precio = (which==='yearly') ? '40.00' : '4.00';
     var pr;
@@ -1224,7 +1245,7 @@ function comprarPlay(which){
       pr = new PaymentRequest(
         [{supportedMethods:'https://play.google.com/billing', data:{sku:sku}}],
         {total:{label:'La Cuota', amount:{currency:'USD', value:precio}}});
-    }catch(e){ toast('El pago de la tienda no está disponible aquí.'); return; }
+    }catch(e){ planExplainPlayError(which, dgErrorTexto('rechazo')); return; }
     pr.show().then(function(resp){
       var pt = resp.details && resp.details.purchaseToken;
       var comprado = (resp.details && resp.details.itemId) || sku;
@@ -1250,7 +1271,8 @@ function comprarPlay(which){
    activo desbloquea: es una sola cuenta con un único derecho de acceso.
    Sin conexión no se toca nada (nadie pierde acceso por estar offline). */
 function playSyncAlArrancar(){
-  var p1 = dgService().then(function(svc){
+  var p1 = dgService().then(function(r){
+    var svc = r && r.svc;
     if(!svc) return false;
     return svc.listPurchases().then(function(compras){
       var ps = (compras||[]).map(function(c){
@@ -1840,7 +1862,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 83;
+var APP_V = 84;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
