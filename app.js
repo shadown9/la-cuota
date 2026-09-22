@@ -519,12 +519,15 @@ function show(id){
   VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = (v!==id); });
   var cur=$(id); if(cur) cur.hidden=false;
   try{ var u=$('updating'); if(u) u.hidden=true; }catch(e){}
+  /* La primera vista pintada apaga la pantalla de presentación. */
+  try{ var sp=$('splash'); if(sp) sp.classList.add('off'); }catch(e){}
   window.scrollTo(0,0);
 }
 /* Pantalla neutra mientras se trae una versión nueva: no se usa la puerta
    (v-verify) para que al refrescar nunca parpadee el inicio de sesión. */
 function mostrarActualizando(){
   try{ var u=$('updating'); if(u) u.hidden=false; }catch(e){}
+  try{ var sp=$('splash'); if(sp) sp.classList.add('off'); }catch(e){}
   /* El guardián no debe interferir: la app está actualizando a propósito. */
   window.__lacuotaBooted = true;
 }
@@ -1902,7 +1905,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 91;
+var APP_V = 92;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1920,10 +1923,19 @@ if('serviceWorker' in navigator){
   /* Limpia la marca de recarga al arrancar: si quedó de una sesión anterior
      en segundo plano, impediría detectar futuras actualizaciones. */
   try{ sessionStorage.removeItem('lacuota_upd'); }catch(e){}
+  var bootHora = Date.now();
   navigator.serviceWorker.addEventListener('controllerchange', function(){
     if(sessionStorage.getItem('lacuota_upd')) return;
     sessionStorage.setItem('lacuota_upd','1');
-    location.reload();
+    if(Date.now() - bootHora < 12000){
+      /* La actualización llegó justo al arrancar: recargar tras la pantalla
+         de presentación se ve intencional, no como un error. */
+      location.reload();
+    }else{
+      /* Llegó a mitad de la sesión: jamás se interrumpe lo que el usuario
+         está haciendo; se aplica sola al reabrir. */
+      toast('Hay una actualización lista; se aplicará cuando reabras la aplicación.');
+    }
   });
   /* Revisa actualizaciones del SW al arrancar, sin esperar checkAppUpdate. */
   navigator.serviceWorker.getRegistration().then(function(reg){
@@ -2037,6 +2049,7 @@ function seguirArranque(codigo){
     paintVer();
     checkAppUpdate();
     window.__lacuotaBooted = true;
+    try{ var sp0=$('splash'); if(sp0) sp0.classList.add('off'); }catch(e){}
     return;
   }
   /* La prueba exige cuenta de Google verificada en el servidor (una por
@@ -2061,6 +2074,10 @@ function seguirArranque(codigo){
   paintVer();
   checkAppUpdate();
   checkReminders();
+  /* La presentación se apaga cuando el arranque pinta su primera pantalla
+     (show() la apaga en cada cambio de vista; esto cubre las rutas que
+     pintan sin pasar por show()). */
+  try{ var sp1=$('splash'); if(sp1) sp1.classList.add('off'); }catch(e){}
   window.__lacuotaBooted = true;
 }
 try{
