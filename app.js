@@ -1201,7 +1201,7 @@ function dgService(){
 function dgErrorTexto(err){
   if(err==='sin-api') return 'Este dispositivo no trae el servicio de pagos de la tienda.';
   if(err==='tienda-nula') return 'La tienda no entregó el servicio de pagos. Abre la tienda una vez y vuelve a intentar.';
-  return 'La tienda no respondió. Vuelve a intentar.';
+  return 'La tienda no respondió ('+err+'). Vuelve a intentar.';
 }
 /* Reabre la explicación del plan con el error visible y botón de reintento. */
 function planExplainPlayError(which, msg){
@@ -1862,7 +1862,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 84;
+var APP_V = 85;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
