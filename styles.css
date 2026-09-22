@@ -319,3 +319,10 @@ input:focus{border-bottom-color:var(--ink)}
 .lp-chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;padding:0 22px;flex:none}
 .lp-chip{background:var(--soft);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:500;color:var(--ink)}
 .lp-price-note{text-align:center;font-size:11px;color:var(--muted);padding:6px 22px 14px;line-height:1.5;margin-top:auto}
+
+/* Pantalla neutra de actualización (no es la puerta de entrada). */
+#updating{position:fixed;inset:0;background:#fff;z-index:9999;display:flex;align-items:center;justify-content:center}
+#updating[hidden]{display:none}
+.updating-card{text-align:center}
+.updating-card img{width:72px;height:72px;border-radius:18px}
+.updating-card p{margin:14px 0 0;color:#6b7280;font-size:15px}

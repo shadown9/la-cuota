@@ -518,7 +518,15 @@ var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-setting
 function show(id){
   VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = (v!==id); });
   var cur=$(id); if(cur) cur.hidden=false;
+  try{ var u=$('updating'); if(u) u.hidden=true; }catch(e){}
   window.scrollTo(0,0);
+}
+/* Pantalla neutra mientras se trae una versión nueva: no se usa la puerta
+   (v-verify) para que al refrescar nunca parpadee el inicio de sesión. */
+function mostrarActualizando(){
+  try{ var u=$('updating'); if(u) u.hidden=false; }catch(e){}
+  /* El guardián no debe interferir: la app está actualizando a propósito. */
+  window.__lacuotaBooted = true;
 }
 
 /* ---------- hoja inferior ---------- */
@@ -1894,7 +1902,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 89;
+var APP_V = 90;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -1986,10 +1994,9 @@ function actualizarAntesDeEntrar(codigo){
           try{
             navigator.serviceWorker.getRegistration().then(function(reg){
               if(done || !reg) return;
-              /* El guardián no debe interferir: la app está actualizando a propósito. */
-              window.__lacuotaBooted = true;
-              mostrarEntrando();
-              verStep('Actualizando…');
+              /* La actualización muestra una pantalla neutra, no la puerta:
+                 así al refrescar nunca parpadea el inicio de sesión. */
+              mostrarActualizando();
               var recargado = false;
               function recargar(){
                 if(recargado || done) return; recargado = true;

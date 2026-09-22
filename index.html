@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-OitmMP5Pbu9A0XkgSAB6y7mHGvBbbPfsNw1fvNJSlJE='; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://lacuota-pagos.deivyespinosa07.workers.dev https://la-cuota-default-rtdb.firebaseio.com https://la-cuota-default-rtdb.firebasedatabase.app; font-src 'self'; worker-src 'self'; manifest-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-OitmMP5Pbu9A0XkgSAB6y7mHGvBbbPfsNw1fvNJSlJE='; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://play.google.com/billing https://lacuota-pagos.deivyespinosa07.workers.dev https://la-cuota-default-rtdb.firebaseio.com https://la-cuota-default-rtdb.firebasedatabase.app; font-src 'self'; worker-src 'self'; manifest-src 'self'">
 <meta name="description" content="La Cuota — las cuotas de tu grupo, sin libreta.">
 <title>La Cuota</title>
 <link rel="manifest" href="manifest.json">
@@ -61,6 +61,16 @@
 })();
 </script>
 <div id="app">
+
+  <!-- Pantalla neutra de actualización: NO es la puerta de entrada.
+       Se muestra solo mientras se trae una versión nueva; así al refrescar
+       nunca parpadea la página de inicio de sesión. -->
+  <div id="updating" hidden>
+    <div class="updating-card">
+      <img src="icons/icon-192.png" alt="La Cuota">
+      <p>Actualizando…</p>
+    </div>
+  </div>
 
   <!-- INICIO -->
   <section id="v-home" class="view" hidden>
