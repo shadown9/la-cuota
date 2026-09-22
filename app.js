@@ -1019,7 +1019,7 @@ var FAQS=[
   ['¿Se puede cobrar diario o semanal?',
    'Sí. Al crear el grupo eliges la frecuencia: diaria, semanal o mensual.'],
   ['¿Cuánto cuesta?',
-   '30 días gratis. Después US$2 al mes o US$20 al año por grupo. Tus datos nunca se borran.']
+   '30 días gratis por cuenta. Después US$4 al mes o US$40 al año, con grupos ilimitados. Tus datos nunca se borran.']
 ];
 function renderFaq(from){
   if(from==='group' && (location.hash||'') !== '#/g/'+curGid+'/faq') setHash('#/g/'+curGid+'/faq');
@@ -1037,8 +1037,8 @@ function renderFaq(from){
 
 /* ---------- PAYWALL ---------- */
 var STRIPE_LINKS = {
-  monthly: 'https://buy.stripe.com/28E8wI8AD1iGdK413kbV600',
-  yearly:  'https://buy.stripe.com/14AcMYbMP7H45dy5jAbV601'
+  monthly: 'https://buy.stripe.com/8x200c047gdA35q6nEbV602',
+  yearly:  'https://buy.stripe.com/8x26oAg35bXkdK45jAbV603'
 };
 function renderPay(){
   var pt=$('payTitle');
@@ -1051,10 +1051,10 @@ function planExplain(which){
   if(esAndroidTWA()){ planExplainPlay(which); return; }
   var anual = which === 'yearly';
   openSheet('<h3>Plan '+(anual?'Anual':'Mensual')+'</h3>'+
-    '<p class="sub"><b>'+(anual?'$20 al año':'$2 al mes')+'</b> por grupo.</p>'+
+    '<p class="sub"><b>'+(anual?'$40 al año':'$4 al mes')+'</b> por tu cuenta · grupos ilimitados.</p>'+
     '<p class="sub">'+(anual
-      ? 'Un solo pago de $20 que cubre 12 meses (el precio de 10). Se renueva cada año.'
-      : 'Se cobran $2 cada mes. Se renueva automáticamente.')+'</p>'+
+      ? 'Un solo pago de $40 que cubre 12 meses (el precio de 10). Se renueva cada año.'
+      : 'Se cobran $4 cada mes. Se renueva automáticamente.')+'</p>'+
     '<p class="sub">Al continuar se abre <b>Stripe</b>, la plataforma de pagos segura. Arriba verás su dirección (buy.stripe.com): así confirmas que tu tarjeta está en buenas manos.</p>'+
     '<p class="sub">Cancela cuando quieras. Tus datos nunca se borran.</p>'+
     '<button class="btn-primary btn-block" id="planGoPay">Continuar al pago</button>'+
@@ -1067,10 +1067,10 @@ function planExplain(which){
 function planExplainPlay(which){
   var anual = which === 'yearly';
   openSheet('<h3>Plan '+(anual?'Anual':'Mensual')+'</h3>'+
-    '<p class="sub"><b>'+(anual?'$20 al año':'$2 al mes')+'</b> por grupo.</p>'+
+    '<p class="sub"><b>'+(anual?'$40 al año':'$4 al mes')+'</b> por tu cuenta · grupos ilimitados.</p>'+
     '<p class="sub">'+(anual
-      ? 'Un solo pago de $20 que cubre 12 meses (el precio de 10). Se renueva cada año.'
-      : 'Se cobran $2 cada mes. Se renueva automáticamente.')+'</p>'+
+      ? 'Un solo pago de $40 que cubre 12 meses (el precio de 10). Se renueva cada año.'
+      : 'Se cobran $4 cada mes. Se renueva automáticamente.')+'</p>'+
     '<p class="sub">El pago se hace con <b>Google Play</b>, seguro y sin salir de la aplicación.</p>'+
     '<p class="sub">Cancela cuando quieras desde tus suscripciones de Google Play. Tus datos nunca se borran.</p>'+
     '<button class="btn-primary btn-block" id="planGoPay">Continuar al pago</button>'+
@@ -1218,7 +1218,7 @@ function comprarPlay(which){
   dgService().then(function(svc){
     if(!svc){ toast('El pago de la tienda no está disponible aquí.'); return; }
     var sku = (which==='yearly') ? 'lacuota_anual' : 'lacuota_mensual';
-    var precio = (which==='yearly') ? '20.00' : '2.00';
+    var precio = (which==='yearly') ? '40.00' : '4.00';
     var pr;
     try{
       pr = new PaymentRequest(
@@ -1318,8 +1318,8 @@ function pagoOk(){
         $('pagoOkForm').hidden = true;
         $('pagoOkDone').hidden = false;
         $('pagoOkPlan').textContent = S.payPlan==='yearly'
-          ? 'Plan anual activo — $20/año por grupo.'
-          : 'Plan mensual activo — $2/mes por grupo.';
+          ? 'Plan anual activo — $40/año · grupos ilimitados.'
+          : 'Plan mensual activo — $4/mes · grupos ilimitados.';
       }else{
         $('pagoOkErr').hidden = false;
         $('pagoOkErr').textContent = (res && res.offline)
@@ -1356,7 +1356,7 @@ term: {
   '<h3>El servicio</h3>'+
   '<p>La Cuota es una aplicación para llevar las cuotas de dinero de tu grupo —familia, amigos, equipo— sin libreta.</p>'+
   '<h3>Precio</h3>'+
-  '<p>30 días gratis por grupo desde que lo creas. Después: $2 USD al mes o $20 USD al año por grupo. Precios en dólares americanos.</p>'+
+  '<p>30 días gratis por cuenta. Después: $4 USD al mes o $40 USD al año, con grupos ilimitados. Precios en dólares americanos.</p>'+
   '<h3>Pagos</h3>'+
   '<p>En la web los pagos los procesa Stripe; en la aplicación de Android los procesa Google Play. Al pagar también aceptas los términos del procesador del pago.</p>'+
   '<h3>Cancelación</h3>'+
@@ -1840,7 +1840,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 82;
+var APP_V = 83;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

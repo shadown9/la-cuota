@@ -291,8 +291,8 @@ async function verifyStripeSig(payload, header, secret) {
 }
 
 function planFromAmount(cents) {
-  if (cents === 2000) return 'anual';
-  return 'mensual'; // 200
+  if (cents === 4000) return 'anual';
+  return 'mensual'; // 400
 }
 
 /* Duración de la prueba gratis: 30 días (la usa /trial). */

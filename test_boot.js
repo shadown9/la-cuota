@@ -409,8 +409,8 @@ t('renderPay titula según la prueba', /id="payTitle"/.test(indexHtml) && /payTi
 })();
 
 t('plan anual: sin frase que prometa meses extra', !/meses gratis/.test(indexHtml));
-t('plan anual: explica que son 12 meses por $20',
-  /12 meses por el precio de 10/.test(indexHtml) && /El plan anual cubre 12 meses por \$20/.test(indexHtml));
+t('plan anual: explica que son 12 meses por $40',
+  /12 meses por el precio de 10/.test(indexHtml) && /El plan anual cubre 12 meses por \$40/.test(indexHtml));
 /* 13. Los planes se explican antes de ir a Stripe (nada de salto directo) */
 t('existe la explicación del plan y los botones la usan',
   /function planExplain\(which\)/.test(appJs) && /planExplain\('monthly'\)/.test(appJs) && /planExplain\('yearly'\)/.test(appJs));
@@ -437,15 +437,15 @@ t('la explicación presenta la dirección de Stripe como confianza', /buy\.strip
     sb.__lacuotaSub.plan('monthly');
     var html = sb.document.getElementById('sheet').innerHTML;
     t('plan mensual: explica precio y renovación antes de Stripe',
-      /Plan Mensual/.test(html) && /\$2 al mes/.test(html) && /Continuar al pago/.test(html));
+      /Plan Mensual/.test(html) && /\$4 al mes/.test(html) && /Continuar al pago/.test(html));
     t('plan mensual: no abre Stripe todavía', openCalls.length===0);
     sb.document.getElementById('planGoPay')._ev.click();
     t('al continuar: abre el enlace mensual de Stripe',
-      openCalls.length===1 && /buy\.stripe\.com\/28E8wI8AD1iGdK413kbV600/.test(openCalls[0]), openCalls.join('|'));
+      openCalls.length===1 && /buy\.stripe\.com\/8x200c047gdA35q6nEbV602/.test(openCalls[0]), openCalls.join('|'));
     sb.__lacuotaSub.plan('yearly');
     var html2 = sb.document.getElementById('sheet').innerHTML;
     t('plan anual: explica los 12 meses antes de Stripe',
-      /Plan Anual/.test(html2) && /12 meses/.test(html2) && /\$20/.test(html2) && /Continuar al pago/.test(html2));
+      /Plan Anual/.test(html2) && /12 meses/.test(html2) && /\$40/.test(html2) && /Continuar al pago/.test(html2));
     sb.document.getElementById('planBack')._ev.click();
     t('atrás: cierra sin abrir Stripe', openCalls.length===1);
   }catch(e){ threw = e; }
