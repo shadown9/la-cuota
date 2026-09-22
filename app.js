@@ -1193,6 +1193,20 @@ function esTWAReal(){
   catch(e){ return false; }
 }
 var _dgSvc = null;
+/* Serializa el error completo (nombre, mensaje, código, pila) para el
+   diagnóstico en pantalla: la tienda a veces falla sin mensaje. */
+function errDetalle(e){
+  try{
+    var d = (e && e.name ? e.name : '?') + '|' +
+            (e && e.message ? e.message : '(sin mensaje)');
+    d += '|' + (e && typeof e.code !== 'undefined' ? 'code='+e.code : 'nocode');
+    var js = '';
+    try{ js = JSON.stringify(e); }catch(x){}
+    if(js && js !== '{}') d += '|' + js.slice(0,120);
+    if(e && e.stack) d += '|' + String(e.stack).split('\n').slice(0,2).join(' ~ ').slice(0,160);
+    return d;
+  }catch(x){ try{ return String(e).slice(0,160); }catch(y){ return '?'; } }
+}
 function dgService(){
   if(_dgSvc) return Promise.resolve({svc:_dgSvc});
   if(!esAndroidTWA()) return Promise.resolve({err:'sin-api'});
@@ -1201,19 +1215,7 @@ function dgService(){
       if(!s) return {err:'tienda-nula'};
       _dgSvc = s; return {svc:s};
     })
-    .catch(function(e){
-      /* Diagnóstico completo: la tienda a veces rechaza sin mensaje; se
-         serializa nombre, mensaje, código y JSON para ver el motivo real. */
-      var det = '';
-      try{
-        det = (e && e.name ? e.name : '?') + '|' +
-              (e && e.message ? e.message : '(sin mensaje)') + '|' +
-              (e && typeof e.code !== 'undefined' ? 'code='+e.code : 'nocode');
-        var js = JSON.stringify(e);
-        if(js && js !== '{}') det += '|' + js.slice(0,120);
-      }catch(x){ det = String(e).slice(0,160); }
-      return {err:'rechazo:'+det};
-    });
+    .catch(function(e){ return {err:'rechazo:'+errDetalle(e)}; });
 }
 /* Texto claro del porqué no se pudo abrir el pago de la tienda. */
 function dgErrorTexto(err){
@@ -1275,7 +1277,7 @@ function comprarPlay(which){
       pr = new PaymentRequest(
         [{supportedMethods:'https://play.google.com/billing', data:{sku:sku}}],
         {total:{label:'La Cuota', amount:{currency:'USD', value:precio}}});
-    }catch(e){ planExplainPlayError(which, dgErrorTexto('rechazo')); return; }
+    }catch(e){ planExplainPlayError(which, dgErrorTexto('pagoreq:'+errDetalle(e))); return; }
     pr.show().then(function(resp){
       var pt = resp.details && resp.details.purchaseToken;
       var comprado = (resp.details && resp.details.itemId) || sku;
@@ -1892,7 +1894,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 88;
+var APP_V = 89;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
