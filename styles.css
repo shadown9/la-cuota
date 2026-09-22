@@ -255,7 +255,7 @@ input:focus{border-bottom-color:var(--ink)}
    pantallazo en blanco ni un parpadeo agresivo. Se oculta desde app.js. */
 #splash{position:fixed;inset:0;z-index:300;background:#fff;
   display:flex;align-items:center;justify-content:center;
-  transition:opacity .25s ease}
+  transition:opacity .2s ease}
 #splash.off{opacity:0;pointer-events:none}
 .splash-card{text-align:center}
 .splash-card img{width:96px;height:96px;border-radius:24px;

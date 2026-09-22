@@ -1,6 +1,11 @@
 /* La Cuota — interfaz. Lógica pura en logica.js, nube en nube.js. */
 (function(){
 'use strict';
+/* Pantalla de presentación: tiempo mínimo visible antes de desvanecerse,
+   para que Android termine su animación de apertura antes de que el splash
+   empiece a desaparecer y no se vean varias transiciones a la vez. */
+var _splashStart=Date.now(), _SPLASH_MIN=350;
+var _splashKicked=false, _splashGone=false, _splashPending=null;
 var L = window.CuotaLogica;
 
 /* ---------- estado ---------- */
@@ -516,16 +521,42 @@ function cerrarSesion(){
 /* ---------- navegación ---------- */
 var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly','v-legal','v-verify'];
 function show(id){
-  VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = (v!==id); });
-  var cur=$(id); if(cur) cur.hidden=false;
+  /* Siempre rastrear la última vista pedida por si hay cambio durante el fade. */
+  _splashPending = id;
+  /* Ocultar todas las vistas; se revelan solo cuando el splash termina. */
+  VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = true; });
   try{ var u=$('updating'); if(u) u.hidden=true; }catch(e){}
-  /* La primera vista pintada apaga la pantalla de presentación. */
-  try{ var sp=$('splash'); if(sp) sp.classList.add('off'); }catch(e){}
   window.scrollTo(0,0);
+  if(_splashGone){
+    /* Splash ya desapareció: mostrar la vista de inmediato (navegación normal). */
+    var cur=$(id); if(cur) cur.hidden=false;
+    return;
+  }
+  if(_splashKicked) return; /* Ya hay un temporizador en marcha; _splashPending ya actualizado. */
+  var sp=document.getElementById('splash');
+  if(!sp || sp.classList.contains('off')){
+    /* Splash ya está oculto sin que nosotros lo hayamos manejado. */
+    _splashGone=_splashKicked=true;
+    var cur2=$(id); if(cur2) cur2.hidden=false;
+    return;
+  }
+  /* Primera vez: esperar el tiempo mínimo, luego desvanecer; solo después
+     revelar el contenido para que nunca haya superposición con el splash. */
+  _splashKicked=true;
+  var wait=Math.max(0, _SPLASH_MIN-(Date.now()-_splashStart));
+  setTimeout(function(){
+    sp.classList.add('off');
+    setTimeout(function(){
+      _splashGone=true;
+      var el=document.getElementById(_splashPending);
+      if(el) el.hidden=false;
+    }, 220);
+  }, wait);
 }
 /* Pantalla neutra mientras se trae una versión nueva: no se usa la puerta
    (v-verify) para que al refrescar nunca parpadee el inicio de sesión. */
 function mostrarActualizando(){
+  _splashKicked=_splashGone=true; /* evitar que show() intente manejar el splash */
   try{ var u=$('updating'); if(u) u.hidden=false; }catch(e){}
   try{ var sp=$('splash'); if(sp) sp.classList.add('off'); }catch(e){}
   /* El guardián no debe interferir: la app está actualizando a propósito. */
@@ -1905,7 +1936,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 92;
+var APP_V = 93;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2049,7 +2080,8 @@ function seguirArranque(codigo){
     paintVer();
     checkAppUpdate();
     window.__lacuotaBooted = true;
-    try{ var sp0=$('splash'); if(sp0) sp0.classList.add('off'); }catch(e){}
+    /* canjearCodigo llama show() que ya gestiona el splash; esto es seguridad. */
+    try{ if(!_splashKicked){ _splashKicked=_splashGone=true; var sp0=$('splash'); if(sp0) sp0.classList.add('off'); } }catch(e){}
     return;
   }
   /* La prueba exige cuenta de Google verificada en el servidor (una por
@@ -2074,10 +2106,9 @@ function seguirArranque(codigo){
   paintVer();
   checkAppUpdate();
   checkReminders();
-  /* La presentación se apaga cuando el arranque pinta su primera pantalla
-     (show() la apaga en cada cambio de vista; esto cubre las rutas que
-     pintan sin pasar por show()). */
-  try{ var sp1=$('splash'); if(sp1) sp1.classList.add('off'); }catch(e){}
+  /* show() ya gestiona el desvanecimiento del splash; esto es seguridad para
+     rutas que pudieran no pasar por show() (ej. excepción interna). */
+  try{ if(!_splashKicked){ _splashKicked=_splashGone=true; var sp1=$('splash'); if(sp1) sp1.classList.add('off'); } }catch(e){}
   window.__lacuotaBooted = true;
 }
 try{
