@@ -1380,11 +1380,55 @@ function playSyncAlArrancar(){
   });
 }
 /* Las suscripciones de Google Play solo se administran en la tienda. */
-function manageSubPlay(){
-  if(!S.payActive){ renderPay(); return; }
+/* "Tu plan": antes de mandar a la tienda, la app dice a qué plan está
+   suscrito (lo pidió Deivy: si ya paga, debe verlo, no invitarlo a pagar
+   de nuevo). */
+function planEstadoSheet(){
+  openSheet('<h3>Tu plan</h3>'+
+    '<p class="sub" id="planEstadoTxt">Verificando tu suscripción…</p>'+
+    '<div id="planEstadoBtns" hidden>'+
+    '<button class="btn-primary btn-block" id="planAdmin">Administrar en Google Play</button>'+
+    '<button class="btn-primary btn-block" id="planVerPlanes" hidden>Ver planes</button>'+
+    '</div>'+
+    '<button class="linkbtn" id="planCerrar">Cerrar</button>');
+  on('planAdmin', 'click', function(){ closeSheet(); abrirSubsPlay(); });
+  on('planVerPlanes', 'click', function(){ closeSheet(); renderPay(); });
+  on('planCerrar', 'click', closeSheet);
+  var mostrar = function(html, modo){
+    var t = $('planEstadoTxt'); if(t) t.innerHTML = html;
+    var b = $('planEstadoBtns'); if(b) b.hidden = false;
+    var vp = $('planVerPlanes'); if(vp) vp.hidden = (modo !== 'sinplan');
+    var pa = $('planAdmin'); if(pa) pa.hidden = (modo === 'sinplan');
+  };
+  playEstado().then(function(st){
+    if(st && st.active){
+      var anual = st.plan === 'anual';
+      var hasta = '';
+      if(st.until){
+        var f = new Date(st.until);
+        if(!isNaN(f)) hasta = ' Se renueva el ' +
+          f.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'}) + '.';
+      }
+      S.payPlan = anual ? 'yearly' : 'monthly'; save();
+      mostrar('Estás suscrito al plan <b>'+(anual?'Anual':'Mensual')+'</b> ('+
+        (anual?'$40 al año':'$4 al mes')+').'+hasta, 'conplan');
+    }else if(st){
+      mostrar('No tienes una suscripción activa de Google Play en esta cuenta.', 'sinplan');
+    }else{
+      mostrar('No se pudo verificar. Revisa tu conexión e inténtalo de nuevo.', 'error');
+    }
+  }).catch(function(){
+    mostrar('No se pudo verificar. Revisa tu conexión e inténtalo de nuevo.', 'error');
+  });
+}
+function abrirSubsPlay(){
   toast('Abriendo tus suscripciones…');
   try{ window.open('https://play.google.com/store/account/subscriptions?package=' + PLAY_PKG, '_blank'); }
   catch(e){ toast('Administra tu plan en la Play Store, en Suscripciones.'); }
+}
+function manageSubPlay(){
+  if(S.payActive || S.googleSub){ planEstadoSheet(); return; }
+  renderPay();
 }
 /* Stripe redirige aquí después del pago: #/pago-ok.
    Solo se activa si el verificador confirma un pago real. */
@@ -1936,7 +1980,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 95;
+var APP_V = 96;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
