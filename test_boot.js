@@ -66,7 +66,7 @@ function makeSandbox(opts){
       addEventListener:function(ev,fn){ (this._ev=this._ev||{})[ev]=fn; }, removeEventListener:function(){},
       textContent:'', value:'', disabled:false, hidden:false,
       style:{}, dataset:{},
-      classList:{add:function(){},remove:function(){},toggle:function(){}},
+      classList:{add:function(){},remove:function(){},toggle:function(){},contains:function(){return false;}},
       appendChild:function(){}, remove:function(){}, click:function(){},
       focus:function(){}, select:function(){}, closest:function(){return null;},
       querySelector:function(){return fakeEl('q');},
@@ -92,7 +92,7 @@ function makeSandbox(opts){
     setTimeout:function(){ return 0; }, clearTimeout:function(){},
     setInterval:function(){ return 0; },
     document:{
-      getElementById:function(id){ return (avail.has(id)||dyn[id])?fakeEl(id):null; },
+      getElementById:function(id){ if(id==='splash') return null; /* splash ya desaparecido: show() revela de inmediato */ return (avail.has(id)||dyn[id])?fakeEl(id):null; },
       addEventListener:function(){}, hidden:false,
       documentElement:fakeEl('html'), body:fakeEl('body'),
       createElement:function(){return fakeEl('c');},
