@@ -189,8 +189,8 @@ t(L.esLegado(''), 'gid vacio cuenta como legado');
 
 
 /* --- verificación con Google: una prueba por cuenta (v41) --- */
-t(!L.needsVerify({groups:{}, trialStart:0, payActive:false, googleOk:false}),
-  'sin grupos no pide verificar (onboarding normal)');
+t(L.needsVerify({groups:{}, trialStart:0, payActive:false, googleOk:false}),
+  'sin grupos muestra primero la página completa con Google');
 t(L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:false, googleOk:false}),
   'con grupos y sin prueba ni cuenta pide verificar');
 t(L.needsVerify({groups:{g1:{}}, trialStart:123, payActive:false, googleOk:false}),

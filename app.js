@@ -1732,6 +1732,7 @@ on('roCta', 'click', function(){ setHash(''); locked()?renderPay():startOnboardi
 on('verGoogle', 'click', function(){
   googleLogin();
 });
+on('verRecover', 'click', recoverSheet);
 
 /* Trae un grupo de la nube al teléfono (también sirve para recuperar
    un grupo después de borrar los datos del navegador) */
@@ -1969,7 +1970,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 104;
+var APP_V = 105;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

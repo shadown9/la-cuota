@@ -913,15 +913,13 @@ t('crear grupo pide verificar antes de anotar', /L\.needsVerify\(S\)/.test(appJs
     /id="setDays"/.test(appJs));
   t('ajustes: ya no usa el campo numérico setCut',
     !/\$\('setCut'\)/.test(appJs));
-  /* 15j (v46): el enlace de tesorero en un teléfono nuevo NO salta la
-     puerta. En incógnito no hay grupos al arrancar y la puerta pasa de
-     largo; al importar el grupo por el enlace debe mostrar v-verify
-     antes de dejar entrar. */
+  /* v105: la página completa con Google es siempre la puerta de entrada,
+     incluso en una instalación nueva que todavía no tiene grupos. */
   asyncTests.push(new Promise(function(resolve){
     var sb = psb({ids: idsFromHtml(indexHtml), seed: seed({})});
     loadApp(sb);
-    t('incógnito sin grupos: al arrancar no pide verificar (aún no hay nada)',
-      sb.__lacuotaSub.necesitaVerificar()===false);
+    t('instalación nueva: muestra primero la página completa con Google',
+      sb.__lacuotaSub.necesitaVerificar()===true && sb.__els['v-verify'].hidden===false);
     sb.CuotaNube.obtener = function(){ return Promise.resolve({
       meta:{id:'g1', name:'Grupo de prueba', trialStart:111},
       members:{}, payments:{}, payTs:{}, delMembers:{}, unpays:{}

@@ -198,7 +198,11 @@
      con la del servidor (que nunca extiende una prueba en el reingreso). */
   L.needsVerify = function (S) {
     if (!S || S.payActive || S.googleOk) return false;
-    return Object.keys((S.groups || {})).length > 0;
+    /* La página de presentación y acceso con Google es la puerta de entrada,
+       incluso en una instalación nueva sin grupos. La condición anterior
+       dejaba pasar al onboarding directamente y hacía desaparecer la página
+       completa que explica la aplicación. */
+    return true;
   };
 
   L.uid = function (prefix) {
