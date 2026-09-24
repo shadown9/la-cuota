@@ -47,8 +47,13 @@
   var b = document.getElementById('volver');
   if(b) b.onclick = ir;
   /* Un intento automático y el botón como respaldo (algunos navegadores
-     bloquean la redirección automática a esquemas de aplicación). */
+     bloquean la redirección automática a esquemas de aplicación).
+     Tras reenviar, cerrar la pestaña (la Custom Tab lo permite): así no
+     queda una pantalla del navegador detrás al volver a la aplicación. */
+  function cerrar(){ try{ window.close(); }catch(e){} }
   setTimeout(ir, 400);
+  setTimeout(cerrar, 1500);
+  if(b) b.addEventListener('click', function(){ setTimeout(cerrar, 800); });
 })();
 </script>
 </body>
