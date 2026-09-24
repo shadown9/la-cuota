@@ -1998,7 +1998,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 100;
+var APP_V = 101;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2017,7 +2017,18 @@ if('serviceWorker' in navigator){
      en segundo plano, impediría detectar futuras actualizaciones. */
   try{ sessionStorage.removeItem('lacuota_upd'); }catch(e){}
   var bootHora = Date.now();
+  /* v101: si al arrancar la página NO tenía controlador, el primer
+     controllerchange es el reclamo inicial del SW recién instalado
+     (clients.claim), no una actualización de versión: recargar ahí
+     provocaba un parpadeo blanco justo al mostrar los grupos tras
+     instalar. Solo se recarga cuando ya había un controlador activo. */
+  var teniaControlador = false;
+  try{ teniaControlador = !!navigator.serviceWorker.controller; }catch(e){}
   navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if(!teniaControlador){
+      try{ teniaControlador = !!navigator.serviceWorker.controller; }catch(e){}
+      return;
+    }
     if(sessionStorage.getItem('lacuota_upd')) return;
     sessionStorage.setItem('lacuota_upd','1');
     if(Date.now() - bootHora < 12000){
