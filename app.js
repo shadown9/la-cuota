@@ -58,7 +58,13 @@ function nubePushAll(){
       }).catch(function(){});
     });
   });
-  chain.then(function(){ nubePushing=false; }, function(){ nubePushing=false; });
+  /* v106: marca de última sincronización exitosa (migración a envoltura
+     nativa: la app nueva usa lastSyncTs para saber qué tan frescos están
+     los datos de la nube). */
+  chain.then(function(){
+    nubePushing=false;
+    try{ localStorage.setItem('lacuota_lastSyncTs', String(Date.now())); }catch(e){}
+  }, function(){ nubePushing=false; });
 }
 function nubePull(gid, done){
   if(!nubeLista()){ if(done)done(false); return; }
@@ -1970,7 +1976,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 105;
+var APP_V = 106;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2217,5 +2223,8 @@ if(nubeLista()){
       nubePushSoon();
     });
   });
+  /* v106: sincronización final forzada en cada arranque (migración a la
+     envoltura nativa). Sube fusionando de inmediato, sin esperar cambios. */
+  nubePushAll();
 }
 })();
