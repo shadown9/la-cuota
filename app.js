@@ -540,19 +540,33 @@ function show(id){
     var cur2=$(id); if(cur2) cur2.hidden=false;
     return;
   }
-  /* Primera vez: esperar el tiempo mínimo, luego desvanecer; solo después
-     revelar el contenido para que nunca haya superposición con el splash. */
+  /* Primera vez: esperar el tiempo mínimo, luego ocultar de golpe y revelar
+     el contenido de inmediato (sin animación, para que no haya transición). */
   _splashKicked=true;
   var wait=Math.max(0, _SPLASH_MIN-(Date.now()-_splashStart));
   setTimeout(function(){
-    sp.classList.add('off');
-    setTimeout(function(){
-      _splashGone=true;
+    try{ sp.classList.add('off'); }catch(e){}
+    _splashGone=true;
+    try{
       var el=document.getElementById(_splashPending);
       if(el) el.hidden=false;
-    }, 220);
+    }catch(e){}
   }, wait);
 }
+/* Red de seguridad: si tras 4 segundos ninguna vista está visible
+   (el arranque se atascó), forzar la pantalla inicial. */
+setTimeout(function(){
+  try{
+    if(window.__lacuotaBooted) return;
+    var anyVisible=false;
+    VIEWS.forEach(function(v){ var el=document.getElementById(v); if(el && !el.hidden) anyVisible=true; });
+    if(!anyVisible){
+      var sp=document.getElementById('splash'); if(sp) sp.classList.add('off');
+      var home=document.getElementById('v-home'); if(home) home.hidden=false;
+      _splashGone=_splashKicked=true;
+    }
+  }catch(e){}
+}, 4000);
 /* Pantalla neutra mientras se trae una versión nueva: no se usa la puerta
    (v-verify) para que al refrescar nunca parpadee el inicio de sesión. */
 function mostrarActualizando(){
@@ -1980,7 +1994,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 98;
+var APP_V = 99;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
