@@ -254,13 +254,8 @@ input:focus{border-bottom-color:var(--ink)}
 /* Pantalla de presentación: cubre el arranque para que nunca haya un
    pantallazo en blanco ni un parpadeo agresivo. Se oculta desde app.js. */
 #splash{position:fixed;inset:0;z-index:300;background:#fff;
-  display:flex;align-items:center;justify-content:center;
   transition:opacity .2s ease}
 #splash.off{opacity:0;pointer-events:none}
-.splash-card{text-align:center}
-.splash-card img{width:96px;height:96px;border-radius:24px;
-  box-shadow:0 6px 24px rgba(0,0,0,.12)}
-.splash-card p{margin:14px 0 0;font-size:20px;font-weight:700;color:#111}
 
 /* Reparación de arranque: jamás pantalla en blanco */
 #bootFail[hidden]{display:none}
