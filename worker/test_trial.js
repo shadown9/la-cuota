@@ -267,6 +267,35 @@ function b64url(obj) {
   const c6 = await postCode({ code: 'codigo-mal-aud-1234567890', verifier: 'v'.repeat(64), redirectUri: 'https://lacuota.org/' });
   t('/google/code con ID token de otro cliente → permiso', c6.status === 401 && c6.body.reason === 'permiso', JSON.stringify(c6.body));
 
+  /* 6. Entrada nativa: POST /google/idtoken {idToken} (Credential Manager).
+     El ID token viene firmado por Google para el MISMO client_id web;
+     el worker lo verifica con verifyGoogleIdToken y devuelve el estado de
+     la prueba con trialState (idéntico a /google/code, sin PKCE). */
+  async function postIdToken(body, ip) {
+    const req = new Request('https://x/google/idtoken', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip || '9.9.9.9' },
+      body: JSON.stringify(body),
+    });
+    const res = await W.default.fetch(req, env);
+    return { status: res.status, body: await res.json() };
+  }
+  const d1 = await postIdToken({ idToken: buenIdToken });
+  t('/google/idtoken acepta ID token válido y devuelve la prueba', d1.status === 200 && d1.body.ok === true &&
+    d1.body.sub === 'google-user-1' && d1.body.trialStart > 0 && d1.body.trialActive === true,
+    JSON.stringify(d1.body).slice(0, 120));
+  const d2 = await postIdToken({ idToken: 'basura' });
+  t('/google/idtoken rechaza token malformado (entrada)', d2.status === 400 && d2.body.reason === 'entrada', d2.status);
+  const d3 = await postIdToken({ idToken: await mint(Object.assign({}, gbase, { aud: 'otro-cliente' })) });
+  t('/google/idtoken con aud de otro cliente → permiso', d3.status === 401 && d3.body.reason === 'permiso', JSON.stringify(d3.body));
+  const d4 = await postIdToken({ idToken: await mint(Object.assign({}, gbase, { exp: now - 3600 })) });
+  t('/google/idtoken vencido → permiso', d4.status === 401 && d4.body.reason === 'permiso', d4.status);
+  /* Idempotencia: el reingreso no extiende la prueba. */
+  const tsAntes = d1.body.trialStart;
+  const d5 = await postIdToken({ idToken: buenIdToken });
+  t('/google/idtoken reingreso no extiende la prueba', d5.status === 200 && d5.body.trialUsed === true &&
+    d5.body.trialStart === tsAntes, JSON.stringify(d5.body).slice(0, 120));
+
   console.log('\n' + count + ' pruebas, ' + failures + ' fallos');
   process.exit(failures ? 1 : 0);
 })().catch(e => { console.error('ERROR', e); process.exit(1); });

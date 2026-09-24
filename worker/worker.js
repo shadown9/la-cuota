@@ -537,6 +537,32 @@ export default {
       return j(Object.assign({ ok: true, sub: v.sub }, st));
     }
 
+    // ---- Entrada nativa con Google (Credential Manager) ----
+    // La app Android instalada muestra la hoja del sistema y obtiene un ID
+    // token de Google para el MISMO cliente OAuth web. Aquí se verifica la
+    // firma con la misma función que /google/code y se devuelve el estado
+    // de la prueba de esa cuenta. Sin PKCE ni secretos: el ID token ya viene
+    // firmado por Google para nuestro client_id (aud = client_id web).
+    // POST /google/idtoken {idToken} -> {ok, sub, ...trial}
+    if (url.pathname === '/google/idtoken' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip)) {
+        return j({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const idToken = String((body && body.idToken) || '');
+      /* Un JWT RS256 de Google mide ~1000-2000 caracteres. */
+      if (!/^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/.test(idToken) ||
+          idToken.length < 200 || idToken.length > 8192) {
+        return j({ ok: false, reason: 'entrada' }, 400);
+      }
+      const v2 = await verifyGoogleIdToken(idToken, GOOGLE_OAUTH_CLIENT_ID);
+      if (!v2.ok) return j({ ok: false, reason: 'permiso' }, 401);
+      const st2 = await trialState(env, v2.sub);
+      return j(Object.assign({ ok: true, sub: v2.sub }, st2));
+    }
+
     // ---- Verificación de suscripción (la app llama aquí) ----
     if (url.pathname === '/sub' && req.method === 'GET') {
       const email = (url.searchParams.get('email') || '').toLowerCase().trim();
