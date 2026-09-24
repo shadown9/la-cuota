@@ -571,7 +571,9 @@ function showTextSheet(txt){
 /* ---------- INICIO ---------- */
 function renderHome(){
   nubeUnwatch();
-  show('v-home');
+  /* Construir TODO el contenido primero y revelar la vista al final:
+     si show() va antes, las tarjetas aparecen una por una ante los ojos
+     del usuario (parpadeo/golpe). Así la primera pantalla sale completa. */
   mostrarInstalar();
   var ids=Object.keys(S.groups);
   var list=$('groupList'); list.innerHTML='';
@@ -606,6 +608,7 @@ function renderHome(){
     b.addEventListener('click', function(){ openGroup(gid); });
     list.appendChild(b);
   });
+  show('v-home');
 }
 
 function membersOf(gid){
@@ -1966,7 +1969,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 102;
+var APP_V = 103;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
