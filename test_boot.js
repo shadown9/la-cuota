@@ -92,7 +92,7 @@ function makeSandbox(opts){
     setTimeout:function(){ return 0; }, clearTimeout:function(){},
     setInterval:function(){ return 0; },
     document:{
-      getElementById:function(id){ if(id==='splash') return null; /* splash ya desaparecido: show() revela de inmediato */ return (avail.has(id)||dyn[id])?fakeEl(id):null; },
+      getElementById:function(id){ if(id==='splash') return null; /* sin splash web en el DOM */ return (avail.has(id)||dyn[id])?fakeEl(id):null; },
       addEventListener:function(){}, hidden:false,
       documentElement:fakeEl('html'), body:fakeEl('body'),
       createElement:function(){return fakeEl('c');},

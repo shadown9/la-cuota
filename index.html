@@ -17,12 +17,6 @@
 <link rel="preconnect" href="https://buy.stripe.com">
 </head>
 <body>
-<!-- Pantalla de presentación: overlay blanco puro, visible desde el primer
-     instante (HTML+CSS puros, sin esperar al JS). Sin ícono ni texto: el
-     splash nativo de Android ya es blanco, y cualquier branding aquí crearía
-     una doble transición visible al abrir. app.js la oculta cuando se pinta
-     la primera vista; el fade-out de blanco sobre blanco es imperceptible. -->
-<div id="splash"></div>
 <!-- Guardián de arranque: si la app no logra iniciar, muestra reparación
      en vez de una pantalla en blanco. No depende de app.js. -->
 <div id="bootFail" hidden>

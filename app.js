@@ -1,12 +1,11 @@
 /* La Cuota — interfaz. Lógica pura en logica.js, nube en nube.js. */
 (function(){
 'use strict';
-/* Pantalla de presentación: sin tiempo mínimo artificial. El splash se
-   oculta en el próximo par de frames de pintura, cuando el contenido ya
-   está renderizado. La animación del splash nativo de Android termina antes
-   de que Chrome pinte su primer frame, por lo que no hay nada que proteger. */
-var _splashStart=Date.now();
-var _splashKicked=false, _splashGone=false, _splashPending=null;
+/* Sin splash web: el splash nativo de Android cubre el arranque con su
+   propia animación de salida del sistema. El splash web agregaba una
+   transición extra (blanco sobre blanco con corte duro al revelar el
+   contenido) que se percibía como un golpe en la pantalla. Al quitarlo,
+   el contenido ya está pintado cuando el sistema desvanece su splash. */
 var L = window.CuotaLogica;
 
 /* ---------- estado ---------- */
@@ -522,40 +521,13 @@ function cerrarSesion(){
 /* ---------- navegación ---------- */
 var VIEWS=['v-home','v-group','v-ob','v-members','v-hist','v-pdetail','v-settings','v-faq','v-pay','v-pagook','v-readonly','v-legal','v-verify'];
 function show(id){
-  /* Siempre rastrear la última vista pedida por si hay cambio durante el fade. */
-  _splashPending = id;
-  /* Ocultar todas las vistas; se revelan solo cuando el splash termina. */
+  /* Ocultar todas las vistas y revelar la pedida de inmediato.
+     Sin splash web: el contenido aparece en cuanto está renderizado y el
+     splash nativo de Android lo cubre con su animación de salida. */
   VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = true; });
   try{ var u=$('updating'); if(u) u.hidden=true; }catch(e){}
   window.scrollTo(0,0);
-  if(_splashGone){
-    /* Splash ya desapareció: mostrar la vista de inmediato (navegación normal). */
-    var cur=$(id); if(cur) cur.hidden=false;
-    return;
-  }
-  if(_splashKicked) return; /* Ya hay un temporizador en marcha; _splashPending ya actualizado. */
-  var sp=document.getElementById('splash');
-  if(!sp || sp.classList.contains('off')){
-    /* Splash ya está oculto sin que nosotros lo hayamos manejado. */
-    _splashGone=_splashKicked=true;
-    var cur2=$(id); if(cur2) cur2.hidden=false;
-    return;
-  }
-  /* Primera vez: ocultar el splash en el próximo par de frames de pintura,
-     garantizando que el contenido ya esté renderizado antes de descubrirlo.
-     Sin setTimeout ni tiempo mínimo artificial: el splash nativo de Android
-     ya terminó su animación antes de que Chrome pinte el primer frame. */
-  _splashKicked=true;
-  requestAnimationFrame(function(){
-    requestAnimationFrame(function(){
-      try{ sp.classList.add('off'); }catch(e){}
-      _splashGone=true;
-      try{
-        var el=document.getElementById(_splashPending);
-        if(el) el.hidden=false;
-      }catch(e){}
-    });
-  });
+  var cur=$(id); if(cur) cur.hidden=false;
 }
 /* Red de seguridad: si tras 4 segundos ninguna vista está visible
    (el arranque se atascó), forzar la pantalla inicial. */
@@ -565,18 +537,14 @@ setTimeout(function(){
     var anyVisible=false;
     VIEWS.forEach(function(v){ var el=document.getElementById(v); if(el && !el.hidden) anyVisible=true; });
     if(!anyVisible){
-      var sp=document.getElementById('splash'); if(sp) sp.classList.add('off');
       var home=document.getElementById('v-home'); if(home) home.hidden=false;
-      _splashGone=_splashKicked=true;
     }
   }catch(e){}
 }, 4000);
 /* Pantalla neutra mientras se trae una versión nueva: no se usa la puerta
    (v-verify) para que al refrescar nunca parpadee el inicio de sesión. */
 function mostrarActualizando(){
-  _splashKicked=_splashGone=true; /* evitar que show() intente manejar el splash */
   try{ var u=$('updating'); if(u) u.hidden=false; }catch(e){}
-  try{ var sp=$('splash'); if(sp) sp.classList.add('off'); }catch(e){}
   /* El guardián no debe interferir: la app está actualizando a propósito. */
   window.__lacuotaBooted = true;
 }
@@ -1998,7 +1966,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 101;
+var APP_V = 102;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2153,8 +2121,6 @@ function seguirArranque(codigo){
     paintVer();
     checkAppUpdate();
     window.__lacuotaBooted = true;
-    /* canjearCodigo llama show() que ya gestiona el splash; esto es seguridad. */
-    try{ if(!_splashKicked){ _splashKicked=_splashGone=true; var sp0=$('splash'); if(sp0) sp0.classList.add('off'); } }catch(e){}
     return;
   }
   /* La prueba exige cuenta de Google verificada en el servidor (una por
@@ -2179,9 +2145,6 @@ function seguirArranque(codigo){
   paintVer();
   checkAppUpdate();
   checkReminders();
-  /* show() ya gestiona el desvanecimiento del splash; esto es seguridad para
-     rutas que pudieran no pasar por show() (ej. excepción interna). */
-  try{ if(!_splashKicked){ _splashKicked=_splashGone=true; var sp1=$('splash'); if(sp1) sp1.classList.add('off'); } }catch(e){}
   window.__lacuotaBooted = true;
 }
 try{

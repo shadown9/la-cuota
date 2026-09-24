@@ -253,9 +253,6 @@ input:focus{border-bottom-color:var(--ink)}
 
 /* Pantalla de presentación: cubre el arranque para que nunca haya un
    pantallazo en blanco ni un parpadeo agresivo. Se oculta desde app.js. */
-#splash{position:fixed;inset:0;z-index:300;background:#fff}
-#splash.off{display:none}
-
 /* Reparación de arranque: jamás pantalla en blanco */
 #bootFail[hidden]{display:none}
 #bootFail{position:fixed;inset:0;z-index:200;background:#fff;
