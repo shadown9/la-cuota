@@ -1969,7 +1969,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 103;
+var APP_V = 104;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2002,14 +2002,12 @@ if('serviceWorker' in navigator){
     }
     if(sessionStorage.getItem('lacuota_upd')) return;
     sessionStorage.setItem('lacuota_upd','1');
-    if(Date.now() - bootHora < 12000){
-      /* La actualización llegó justo al arrancar: recargar tras la pantalla
-         de presentación se ve intencional, no como un error. */
-      location.reload();
-    }else{
-      /* Llegó a mitad de la sesión: jamás se interrumpe lo que el usuario
-         está haciendo; se aplica sola al reabrir. */
-      toast('Hay una actualización lista; se aplicará cuando reabras la aplicación.');
+    /* Nunca recargar durante el arranque. Android, la actividad lanzadora y
+       Chrome ya están haciendo el relevo de ventanas; una recarga aquí era
+       la tercera transición y causaba los parpadeos. La nueva versión queda
+       activa y se usa completa en la próxima apertura. */
+    if(Date.now() - bootHora >= 12000){
+      toast('Actualización lista; se aplicará cuando reabras la aplicación.');
     }
   });
   /* Revisa actualizaciones del SW al arrancar, sin esperar checkAppUpdate. */
@@ -2061,59 +2059,11 @@ function bootFail(){
    que pase. Un "Actualizando…" eterno es peor que operar unos minutos con
    el código anterior. */
 function actualizarAntesDeEntrar(codigo){
-  var done = false;
-  function seguir(){ if(done) return; done = true; seguirArranque(codigo); }
-  /* v91: quien ya verificó con Google entra DE INMEDIATO a sus grupos, sin
-     frenar en ninguna pantalla. La versión nueva se trae en segundo plano
-     (checkAppUpdate + controllerchange recargan solos cuando está lista).
-     Solo la puerta (sin verificar) espera el código fresco antes de dejar
-     tocar "Continuar con Google". */
-  var verificado = false;
-  try{ verificado = !L.needsVerify(S) && !S.expectNoSession && !(codigo && codigo.c); }catch(e){}
-  if(verificado){ seguir(); return; }
-  if(!('serviceWorker' in navigator)){ seguir(); return; }
-  /* Plazo máximo absoluto: nunca pantalla clavada, ni siquiera si la
-     actualización se atasca a mitad de camino. */
-  var hardTo = setTimeout(seguir, 10000);
-  var to = setTimeout(function(){ clearTimeout(hardTo); seguir(); }, 4000);
-  try{
-    fetch('version.json?ts='+Date.now(), {cache:'no-store'})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(done) return;
-        if(d && d.v && d.v > APP_V){
-          clearTimeout(to);
-          /* Hay versión nueva: se intenta traer, pero sin bloquear. Si el
-             SW nuevo toma el control, se recarga con el código nuevo; si
-             no, se entra con el actual. */
-          try{
-            navigator.serviceWorker.getRegistration().then(function(reg){
-              if(done || !reg) return;
-              /* La actualización muestra una pantalla neutra, no la puerta:
-                 así al refrescar nunca parpadea el inicio de sesión. */
-              mostrarActualizando();
-              var recargado = false;
-              function recargar(){
-                if(recargado || done) return; recargado = true;
-                clearTimeout(hardTo);
-                try{ location.reload(); }catch(e){ seguir(); }
-              }
-              try{ reg.update().catch(function(){}); }catch(e){}
-              try{
-                navigator.serviceWorker.addEventListener('controllerchange', recargar);
-              }catch(e2){}
-              /* Si el SW nuevo no toma el control pronto, no se insiste:
-                 se entra con el código actual y el chequeo periódico
-                 completa la actualización solo. */
-              setTimeout(function(){
-                if(!recargado){ clearTimeout(hardTo); seguir(); }
-              }, 5000);
-            }).catch(function(){});
-          }catch(e){}
-        }else{ clearTimeout(to); clearTimeout(hardTo); seguir(); }
-      })
-      .catch(function(){ clearTimeout(to); clearTimeout(hardTo); seguir(); });
-  }catch(e){ clearTimeout(to); clearTimeout(hardTo); seguir(); }
+  /* El chequeo y la descarga de actualizaciones se hacen en segundo plano.
+     Bloquear aquí, mostrar "Actualizando" y recargar mientras Chrome abre
+     la TWA creaba varias pantallas consecutivas. Se entra una sola vez con
+     la versión coherente que ya está instalada. */
+  seguirArranque(codigo);
 }
 function seguirArranque(codigo){
   bootstrapTrial(); /* arranca la prueba si se perdió (recuperación/cambio de teléfono) */
