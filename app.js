@@ -1,10 +1,11 @@
 /* La Cuota — interfaz. Lógica pura en logica.js, nube en nube.js. */
 (function(){
 'use strict';
-/* Pantalla de presentación: tiempo mínimo visible antes de desvanecerse,
-   para que Android termine su animación de apertura antes de que el splash
-   empiece a desaparecer y no se vean varias transiciones a la vez. */
-var _splashStart=Date.now(), _SPLASH_MIN=350;
+/* Pantalla de presentación: sin tiempo mínimo artificial. El splash se
+   oculta en el próximo par de frames de pintura, cuando el contenido ya
+   está renderizado. La animación del splash nativo de Android termina antes
+   de que Chrome pinte su primer frame, por lo que no hay nada que proteger. */
+var _splashStart=Date.now();
 var _splashKicked=false, _splashGone=false, _splashPending=null;
 var L = window.CuotaLogica;
 
@@ -540,18 +541,21 @@ function show(id){
     var cur2=$(id); if(cur2) cur2.hidden=false;
     return;
   }
-  /* Primera vez: esperar el tiempo mínimo, luego ocultar de golpe y revelar
-     el contenido de inmediato (sin animación, para que no haya transición). */
+  /* Primera vez: ocultar el splash en el próximo par de frames de pintura,
+     garantizando que el contenido ya esté renderizado antes de descubrirlo.
+     Sin setTimeout ni tiempo mínimo artificial: el splash nativo de Android
+     ya terminó su animación antes de que Chrome pinte el primer frame. */
   _splashKicked=true;
-  var wait=Math.max(0, _SPLASH_MIN-(Date.now()-_splashStart));
-  setTimeout(function(){
-    try{ sp.classList.add('off'); }catch(e){}
-    _splashGone=true;
-    try{
-      var el=document.getElementById(_splashPending);
-      if(el) el.hidden=false;
-    }catch(e){}
-  }, wait);
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      try{ sp.classList.add('off'); }catch(e){}
+      _splashGone=true;
+      try{
+        var el=document.getElementById(_splashPending);
+        if(el) el.hidden=false;
+      }catch(e){}
+    });
+  });
 }
 /* Red de seguridad: si tras 4 segundos ninguna vista está visible
    (el arranque se atascó), forzar la pantalla inicial. */
@@ -1994,7 +1998,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 99;
+var APP_V = 100;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
