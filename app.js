@@ -54,7 +54,11 @@ function nubePushAll(){
           state=m.state;
           if(m.changed){ L.applySnapshot(S, gid, m.state); persist(); if(gid===curGid) renderGroup(); }
         }
-        return CuotaNube.publicar(gid, state);
+        return CuotaNube.publicar(gid, state).then(function(subido){
+          /* Los grupos siguen a la cuenta: registrar este grupo como propio
+             (fire-and-forget, jamás bloquea la subida). */
+          if(subido) reclamarGrupo(gid);
+        });
       }).catch(function(){});
     });
   });
@@ -86,6 +90,43 @@ function nubeWatch(gid){
   });
 }
 function nubeUnwatch(){ if(nubeUnsub){ try{ nubeUnsub(); }catch(e){} nubeUnsub=null; } }
+
+/* ---------- los grupos siguen a la cuenta ---------- */
+/* Registra este grupo como propio en el servidor (fire-and-forget: jamás
+   bloquea la interfaz; reintenta una vez en silencio si falla la red). */
+function reclamarGrupo(gid){
+  var sess = S.googleSess || '';
+  if(!sess || !/^[A-Za-z0-9_-]{5,64}$/.test(gid || '')) return;
+  var intento = 0;
+  (function enviar(){
+    intento++;
+    fetch(PAY_VERIFY_URL + '/me/claim', {method:'POST',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify({sess: sess, gid: gid})})
+      .then(function(r){ if(!r.ok && intento < 2) setTimeout(enviar, 5000); })
+      .catch(function(){ if(intento < 2) setTimeout(enviar, 5000); });
+  })();
+}
+/* Tras entrar sin grupos locales: pide al servidor la lista de grupos de
+   esta cuenta y los trae de la nube uno por uno (reusa la recuperación). */
+function traerGruposDeLaCuenta(cb){
+  var sess = S.googleSess || '';
+  function fin(){ if(cb) cb(); }
+  if(!sess || !nubeLista()){ fin(); return; }
+  fetch(PAY_VERIFY_URL + '/me/groups?sess=' + encodeURIComponent(sess))
+    .then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(x){
+      var gids = (x.ok && x.d && x.d.ok && Array.isArray(x.d.gids)) ? x.d.gids : [];
+      var i = 0;
+      (function next(){
+        if(i >= gids.length){ fin(); return; }
+        var gid = gids[i++];
+        if(!/^[A-Za-z0-9_-]{5,64}$/.test(gid)){ next(); return; }
+        fetchGroupToLocal(gid, function(){ next(); });
+      })();
+    })
+    .catch(function(){ fin(); });
+}
 
 /* ---------- utilidades ---------- */
 function $(id){ return document.getElementById(id); }
@@ -476,6 +517,9 @@ function esperarSesionVerificada(){
 function aplicarSesionGoogle(res){
   S.googleOk = true;
   S.googleSub = res.sub || '';
+  /* Token de sesión opaco: los grupos siguen a la cuenta. Sirve para
+     reclamar los grupos al subir y para traerlos solos al entrar. */
+  S.googleSess = res.sess || '';
   S.expectNoSession = false;
   S.googleTrialStart = res.trialStart || Date.now();
   /* El servidor es la autoridad de la prueba: alinear la fecha local con
@@ -498,6 +542,11 @@ function aplicarSesionGoogle(res){
     }catch(e){}
     if(gid && S.groups && S.groups[gid]) openGroup(gid);
     else if(vh){ try{ if((location.hash||'')!==vh) location.hash = vh; }catch(e2){} route(); }
+    else if(!Object.keys(S.groups || {}).length && S.googleSess){
+      /* Entrada fresca sin grupos locales: los grupos siguen a la cuenta.
+         Pedir la lista al servidor y traerlos de la nube solos. */
+      traerGruposDeLaCuenta(function(){ renderHome(); });
+    }
     else renderHome();
   }else{
     toast('Tu prueba gratis terminó. Activa tu suscripción para seguir.');
@@ -514,7 +563,7 @@ function cerrarSesion(){
      sesión que cerrar contra un servidor. Salir es limpiar la marca
      local: la próxima vez Google vuelve a mostrar el selector de
      cuenta, así que no hay auto-entrada silenciosa que apagar. */
-  S.googleOk = false; S.googleSub = ''; S.expectNoSession = true; save();
+  S.googleOk = false; S.googleSub = ''; S.googleSess = ''; S.expectNoSession = true; save();
   /* Cancelar la sincronización diferida con la nube: si llega mientras la
      pantalla de verificación está visible podría llamar renderGroup() y
      volver a meter al usuario dentro. */
@@ -1976,7 +2025,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 107;
+var APP_V = 108;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2242,5 +2291,13 @@ if(nubeLista()){
   /* v106: sincronización final forzada en cada arranque (migración a la
      envoltura nativa). Sube fusionando de inmediato, sin esperar cambios. */
   nubePushAll();
+  /* v108: migración única — los grupos locales pasan a seguir a la cuenta:
+     se reclaman una sola vez para que el próximo inicio los traiga solos. */
+  try{
+    if(S.googleSess && !localStorage.getItem('lacuota_claimedGroups')){
+      Object.keys(S.groups || {}).forEach(function(gid){ reclamarGrupo(gid); });
+      localStorage.setItem('lacuota_claimedGroups', '1');
+    }
+  }catch(e){}
 }
 })();

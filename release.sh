@@ -24,6 +24,8 @@ node worker/test_trial.js | tail -1
 test ${PIPESTATUS[0]} -eq 0 || { echo "FALLARON pruebas del worker: no se publica"; exit 1; }
 node worker/test_play.js | tail -1
 test ${PIPESTATUS[0]} -eq 0 || { echo "FALLARON pruebas Play Billing: no se publica"; exit 1; }
+node worker/test_groups.js | tail -1
+test ${PIPESTATUS[0]} -eq 0 || { echo "FALLARON pruebas de grupos de la cuenta: no se publica"; exit 1; }
 echo "--- publicando v$V ---"
 git add -A && git commit -q -m "v$V: $MSG" && git push -q
 git log --oneline -1

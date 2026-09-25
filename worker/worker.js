@@ -254,9 +254,9 @@ function hexRandom(nBytes) {
   return [...b].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
-async function checkRateLimit(env, ip) {
+async function checkRateLimit(env, ip, scope) {
   if (!ip) return true;
-  const k = 'rl:' + await sha256Hex('trial|' + ip);
+  const k = 'rl:' + await sha256Hex((scope || 'trial') + '|' + ip);
   const n = parseInt(await env.SUBS.get(k) || '0', 10) || 0;
   if (n >= 30) return false;
   await env.SUBS.put(k, String(n + 1), { expirationTtl: 3600 });
@@ -301,6 +301,36 @@ function planFromAmount(cents) {
 
 /* Duración de la prueba gratis: 30 días (la usa /trial). */
 const TRIAL_MS = 30 * 86400000;
+
+/* Sesión de la cuenta: tras verificar la identidad con Google, el servidor
+   emite un token opaco que la app guarda y presenta para reclamar y listar
+   sus grupos (los grupos siguen a la cuenta). Dura 30 días. */
+const SESS_MS = 30 * 86400000;
+const SESS_TTL_S = 30 * 86400;
+
+/* Valida el token de sesión opaco y devuelve el sub de Google, o null. */
+async function sessSub(env, sess) {
+  if (!/^[0-9a-f]{64}$/.test(String(sess || ''))) return null;
+  let rec = null;
+  try { rec = await env.SUBS.get('sess:' + sess, 'json'); } catch (e) { /* noop */ }
+  if (!rec || !rec.sub) return null;
+  if (rec.exp && Date.now() > rec.exp) {
+    try { await env.SUBS.delete('sess:' + sess); } catch (e) { /* noop */ }
+    return null;
+  }
+  return rec.sub;
+}
+
+/* Emite un token de sesión opaco para el sub (30 días en KV). */
+async function emitirSesion(env, sub) {
+  const sess = hexRandom(32);
+  try {
+    await env.SUBS.put('sess:' + sess,
+      JSON.stringify({ sub: sub, exp: Date.now() + SESS_MS }),
+      { expirationTtl: SESS_TTL_S });
+  } catch (e) { /* sin KV no hay sesión: la app sigue sin grupos automáticos */ }
+  return sess;
+}
 
 /* ---------- Google Play Billing: verificación en el servidor ----------
    La app Android (TWA) cobra con la Digital Goods API y nos envía el
@@ -538,7 +568,8 @@ export default {
       const v = await verifyGoogleIdToken(tok.d.id_token, GOOGLE_OAUTH_CLIENT_ID);
       if (!v.ok) return j({ ok: false, reason: 'permiso' }, 401);
       const st = await trialState(env, v.sub);
-      return j(Object.assign({ ok: true, sub: v.sub }, st));
+      const sess = await emitirSesion(env, v.sub);
+      return j(Object.assign({ ok: true, sub: v.sub, sess: sess }, st));
     }
 
     // ---- Entrada nativa con Google (Credential Manager) ----
@@ -564,7 +595,49 @@ export default {
       const v2 = await verifyGoogleIdToken(idToken, GOOGLE_OAUTH_CLIENT_ID);
       if (!v2.ok) return j({ ok: false, reason: 'permiso' }, 401);
       const st2 = await trialState(env, v2.sub);
-      return j(Object.assign({ ok: true, sub: v2.sub }, st2));
+      const sess2 = await emitirSesion(env, v2.sub);
+      return j(Object.assign({ ok: true, sub: v2.sub, sess: sess2 }, st2));
+    }
+
+    // ---- Los grupos siguen a la cuenta de Google ----
+    // POST /me/claim {sess, gid}: registra que este grupo es de la cuenta.
+    // La app lo llama (fire-and-forget) cada vez que sube un grupo a la nube.
+    if (url.pathname === '/me/claim' && req.method === 'POST') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip, 'me')) {
+        return j({ ok: false, reason: 'limite' }, 429);
+      }
+      let body = null;
+      try { body = await req.json(); } catch (e) { /* noop */ }
+      const sub = await sessSub(env, body && body.sess);
+      if (!sub) return j({ ok: false, reason: 'sesion' }, 401);
+      const gid = String((body && body.gid) || '');
+      if (!/^[A-Za-z0-9_-]{5,64}$/.test(gid)) {
+        return j({ ok: false, reason: 'gid' }, 400);
+      }
+      const gk = 'groups:' + await sha256Hex(sub);
+      let arr = null;
+      try { arr = await env.SUBS.get(gk, 'json'); } catch (e) { /* noop */ }
+      if (!Array.isArray(arr)) arr = [];
+      if (arr.indexOf(gid) < 0) {
+        arr.push(gid);
+        try { await env.SUBS.put(gk, JSON.stringify(arr)); } catch (e) { /* noop */ }
+      }
+      return j({ ok: true });
+    }
+
+    // GET /me/groups?sess=...: lista los grupos de la cuenta (vacía si no hay).
+    if (url.pathname === '/me/groups' && req.method === 'GET') {
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      if (!await checkRateLimit(env, ip, 'me')) {
+        return j({ ok: false, reason: 'limite' }, 429);
+      }
+      const sub = await sessSub(env, url.searchParams.get('sess'));
+      if (!sub) return j({ ok: false, reason: 'sesion' }, 401);
+      let arr = null;
+      try { arr = await env.SUBS.get('groups:' + await sha256Hex(sub), 'json'); }
+      catch (e) { /* noop */ }
+      return j({ ok: true, gids: Array.isArray(arr) ? arr : [] });
     }
 
     // ---- Verificación de suscripción (la app llama aquí) ----
