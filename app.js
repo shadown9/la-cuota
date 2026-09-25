@@ -765,11 +765,30 @@ function renderMonth(){
   }
 
   list.querySelectorAll('[data-tg]').forEach(function(b){
-    b.addEventListener('click', function(){ togglePay(b.getAttribute('data-tg')); });
+    b.addEventListener('click', function(){ confirmPay(b.getAttribute('data-tg')); });
   });
   list.querySelectorAll('[data-wa]').forEach(function(b){
     b.addEventListener('click', function(e){ e.stopPropagation(); remindOne(b.getAttribute('data-wa')); });
   });
+}
+
+/* Confirmación antes de marcar/desmarcar un pago: un toque accidental no
+   debe cambiar el estado sin que el tesorero lo note. */
+function confirmPay(mid){
+  if (locked()){ renderPay(); return; }
+  var g=S.groups[curGid]; if(!g) return;
+  var m=S.members[mid]; if(!m) return;
+  var pm=((S.payments[curGid]||{})[curMonth])||{};
+  var pagado=!!pm[mid];
+  var monto=L.fmtMoney(g.amount,g.currency);
+  openSheet('<h3>'+(pagado?'¿Quitar el pago?':'¿Confirmar pago?')+'</h3>'+
+    '<p style="text-align:center;font-size:15px;color:#555;margin:4px 0 6px">'+(pagado
+      ? 'Se quitará el pago de <b>'+esc(m.name)+'</b> en este período.'
+      : 'Se marcará a <b>'+esc(m.name)+'</b> como que pagó <b>'+monto+'</b> en este período.')+'</p>'+
+    '<button class="btn-primary btn-block" id="cfPayOk">'+(pagado?'Sí, quitar el pago':'Sí, pagó')+'</button>'+
+    '<button class="btn-ghost btn-block" id="cfPayNo">Cancelar</button>');
+  on('cfPayOk','click',function(){ closeSheet(); togglePay(mid); });
+  on('cfPayNo','click',closeSheet);
 }
 
 function togglePay(mid){
@@ -2034,7 +2053,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 109;
+var APP_V = 110;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
