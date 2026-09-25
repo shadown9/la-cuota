@@ -1976,7 +1976,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 106;
+var APP_V = 107;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
@@ -2158,10 +2158,26 @@ try{
     if(_qm){
       _code0 = decodeURIComponent(_qm[1]);
       _state0 = _sm ? decodeURIComponent(_sm[1]) : null;
-      try{ sessionStorage.setItem('lacuota_code', JSON.stringify({c: _code0, s: _state0, ts: Date.now()})); }catch(e){}
+    }
+    /* v65: retorno del flujo NATIVO. La app instalada abre el Custom Tab de
+       Google con redirect_uri=https://lacuota.org/ (el mismo que usa en el
+       canje) y Google devuelve el código a ESTA página. El state nativo trae
+       el prefijo 'lcn1_'. El secreto PKCE vive en la WebView de la app, así
+       que aquí NO se canjea ni se guarda nada: se reenvía al deep link
+       lacuota://oauth para que la app instalada lo canjee con su PKCE. */
+    var _esRetornoNativo = false;
+    try{ _esRetornoNativo = !!(_code0 && _state0 && _state0.indexOf('lcn1_') === 0); }catch(e2){}
+    if(_esRetornoNativo){
+      try{
+        location.replace('lacuota://oauth?code=' + encodeURIComponent(_code0) +
+                         '&state=' + encodeURIComponent(_state0));
+      }catch(e3){}
+      try{ document.title = 'Abriendo La Cuota…'; }catch(e4){}
+    }else if(_qm){
+      try{ sessionStorage.setItem('lacuota_code', JSON.stringify({c: _code0, s: _state0, ts: Date.now()})); }catch(e5){}
     }
   }catch(e){}
-  if(_code0 || /[?&]error=/.test(String(location.search || ''))){
+  if(!_esRetornoNativo && (_code0 || /[?&]error=/.test(String(location.search || '')))){
     try{
       if(history && history.replaceState) history.replaceState(null, '', String(location).split('?')[0]);
     }catch(e){}
@@ -2175,7 +2191,7 @@ try{
       else sessionStorage.removeItem('lacuota_code');
     }catch(e){ _code0 = null; }
   }
-  actualizarAntesDeEntrar(_code0 ? {c:_code0, s:_state0} : null);
+  actualizarAntesDeEntrar((_esRetornoNativo || !_code0) ? null : {c:_code0, s:_state0});
 }catch(err){ bootFail(); }
 /* Re-verificar la suscripción en silencio al arrancar: si Stripe dice que
    ya no está activa, se desactiva sola (nadie la mantiene a mano).

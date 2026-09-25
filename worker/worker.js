@@ -167,7 +167,11 @@ async function verifyFirebaseIdToken(idToken, projectId, fetchCerts) {
 /* v63: entrada con Google por PKCE directo (sin Firebase Auth).
    El cliente OAuth web del proyecto (ID público) acepta como URIs de
    redireccionamiento solo los registrados en la consola de Google. */
-const ALLOWED_ORIGINS = ['https://lacuota.org', 'https://www.lacuota.org', 'https://shadown9.github.io'];
+const ALLOWED_ORIGINS = ['https://lacuota.org', 'https://www.lacuota.org', 'https://shadown9.github.io',
+  /* La envoltura nativa Android (Capacitor) sirve el contenido local: sin
+     estos origenes el navegador bloquea por CORS la verificacion de Google
+     (/google/idtoken) y la app vuelve sola a la pantalla de entrada. */
+  'capacitor://localhost', 'http://localhost', 'https://localhost'];
 const GOOGLE_OAUTH_CLIENT_ID = '741417625058-oug08d9kbgtu1ma6ft6dninmdg7nk1ug.apps.googleusercontent.com';
 const GOOGLE_REDIRECT_URIS = ['https://lacuota.org/', 'https://shadown9.github.io/la-cuota/'];
 
