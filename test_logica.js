@@ -201,5 +201,14 @@ t(!L.needsVerify({groups:{g1:{}}, trialStart:0, payActive:false, googleOk:true})
   'cuenta verificada no pide verificar');
 t(!L.needsVerify(null), 'estado nulo no pide verificar');
 
+/* --- barra de progreso (proporción por flex-grow, sin porcentajes) --- */
+eq(L.barGrow(4, 8), {fill:4, rest:4}, 'barra 4 de 8 -> mitad y mitad');
+eq(L.barGrow(0, 8), {fill:0, rest:8}, 'barra 0 de 8 -> vacía');
+eq(L.barGrow(8, 8), {fill:8, rest:0}, 'barra 8 de 8 -> llena');
+eq(L.barGrow(0, 0), {fill:0, rest:0}, 'barra sin miembros -> vacía');
+eq(L.barGrow(6, 4), {fill:6, rest:0}, 'barra no deja resto negativo');
+eq(L.barGrow(-2, 8), {fill:0, rest:8}, 'barra sanea negativos');
+t(L.barGrow(4,8).fill / (L.barGrow(4,8).fill + L.barGrow(4,8).rest) === 0.5, 'barra 4 de 8 = 50% exacto');
+
 console.log('\n' + ok + ' pasadas, ' + bad + ' falladas.');
 process.exit(bad ? 1 : 0);

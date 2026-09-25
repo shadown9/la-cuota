@@ -130,6 +130,16 @@
     };
   };
 
+  // Proporción de la barra de progreso de la tarjeta de grupo.
+  // Se dibuja con flex-grow (sin unidades), no con width en porcentaje:
+  // reparte el espacio por proporción exacta y no depende de cómo el
+  // WebView resuelva los porcentajes anidados.
+  L.barGrow = function (paid, total) {
+    paid = Math.max(0, Math.floor(Number(paid)) || 0);
+    total = Math.max(0, Math.floor(Number(total)) || 0);
+    return { fill: paid, rest: Math.max(0, total - paid) };
+  };
+
   L.reminderText = function (member, group, label) {
     return 'Hola ' + member.name + ', te escribe el tesorero de ' + group.name +
       '. Te recuerdo la cuota de ' + label + ': ' +

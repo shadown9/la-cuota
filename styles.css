@@ -60,8 +60,9 @@ body{
 .gitem .ginfo{flex:1;min-width:0}
 .gitem .gname{display:block;font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gitem .gstat{display:block;color:var(--muted);font-size:13.5px;margin-top:2px}
-.gitem .gbar{display:block;height:6px;border-radius:3px;background:var(--soft);margin-top:10px;overflow:hidden}
-.gitem .gfill{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.gitem .gbar{display:flex;height:6px;border-radius:3px;background:var(--soft);margin-top:10px;overflow:hidden}
+.gitem .gfill{display:block;background:var(--accent)}
+.gitem .grest{display:block}
 .gitem .gchev{color:var(--muted);font-size:20px}
 .empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:16px}
 

@@ -588,9 +588,14 @@ function show(id){
   /* Ocultar todas las vistas y revelar la pedida de inmediato.
      Sin splash web: el contenido aparece en cuanto está renderizado y el
      splash nativo de Android lo cubre con su animación de salida. */
+  var visible=null;
+  VIEWS.forEach(function(v){ var el=$(v); if(el && !el.hidden) visible=v; });
   VIEWS.forEach(function(v){ var el=$(v); if(el) el.hidden = true; });
   try{ var u=$('updating'); if(u) u.hidden=true; }catch(e){}
-  window.scrollTo(0,0);
+  /* Volver arriba solo al CAMBIAR de pantalla. Si la nube re-renderiza la
+     vista actual (p. ej. el eco de un pago recién marcado llega 2-3 s
+     después), se conserva la posición de scroll del usuario. */
+  if(visible!==id) window.scrollTo(0,0);
   var cur=$(id); if(cur) cur.hidden=false;
 }
 /* Red de seguridad: si tras 4 segundos ninguna vista está visible
@@ -664,12 +669,12 @@ function renderHome(){
     var sum=sumFor(gid, mk);
     var b=document.createElement('button');
     b.className='gitem';
-    var pct=sum.countTotal?Math.round(sum.countPaid/sum.countTotal*100):0;
+    var bg=L.barGrow(sum.countPaid, sum.countTotal);
     b.innerHTML='<span class="gdot">'+esc(initials(g.name))+'</span>'+
       '<span class="ginfo"><span class="gname">'+esc(g.name)+'</span>'+
       '<span class="gstat">'+sum.countPaid+' de '+sum.countTotal+' pagaron · '+
         (sum.missing>0 ? 'Faltan '+L.fmtMoney(sum.missing,g.currency) : 'Todos pagaron')+'</span>'+
-      '<span class="gbar"><span class="gfill" style="width:'+pct+'%"></span></span></span>'+
+      '<span class="gbar"><span class="gfill" style="flex-grow:'+bg.fill+'"></span><span class="grest" style="flex-grow:'+bg.rest+'"></span></span></span>'+
       '<span class="gchev">›</span>';
     b.addEventListener('click', function(){ openGroup(gid); });
     list.appendChild(b);
@@ -2055,7 +2060,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 111;
+var APP_V = 112;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
