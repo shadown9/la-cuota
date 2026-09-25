@@ -664,10 +664,12 @@ function renderHome(){
     var sum=sumFor(gid, mk);
     var b=document.createElement('button');
     b.className='gitem';
+    var pct=sum.countTotal?Math.round(sum.countPaid/sum.countTotal*100):0;
     b.innerHTML='<span class="gdot">'+esc(initials(g.name))+'</span>'+
       '<span class="ginfo"><span class="gname">'+esc(g.name)+'</span>'+
       '<span class="gstat">'+sum.countPaid+' de '+sum.countTotal+' pagaron · '+
-        (sum.missing>0 ? 'Faltan '+L.fmtMoney(sum.missing,g.currency) : 'Todos pagaron')+'</span></span>'+
+        (sum.missing>0 ? 'Faltan '+L.fmtMoney(sum.missing,g.currency) : 'Todos pagaron')+'</span>'+
+      '<span class="gbar"><span class="gfill" style="width:'+pct+'%"></span></span></span>'+
       '<span class="gchev">›</span>';
     b.addEventListener('click', function(){ openGroup(gid); });
     list.appendChild(b);
@@ -2053,7 +2055,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 110;
+var APP_V = 111;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
