@@ -61,8 +61,8 @@ body{
 .gitem .gname{display:block;font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gitem .gstat{display:block;color:var(--muted);font-size:13.5px;margin-top:2px}
 .gitem .gbar{display:flex;height:6px;border-radius:3px;background:var(--soft);margin-top:10px;overflow:hidden}
-.gitem .gfill{display:block;background:var(--accent)}
-.gitem .grest{display:block}
+.gitem .gseg{flex:1 1 0;min-width:0}
+.gitem .gseg.on{background:var(--accent)}
 .gitem .gchev{color:var(--muted);font-size:20px}
 .empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:16px}
 

@@ -131,9 +131,9 @@
   };
 
   // Proporción de la barra de progreso de la tarjeta de grupo.
-  // Se dibuja con flex-grow (sin unidades), no con width en porcentaje:
-  // reparte el espacio por proporción exacta y no depende de cómo el
-  // WebView resuelva los porcentajes anidados.
+  // Se dibuja con un segmento igual por miembro (los primeros `paid` en
+  // verde), sin estilos en línea: el CSP de la app bloquea el atributo
+  // style, así que la proporción se construye con N tramos iguales y CSS.
   L.barGrow = function (paid, total) {
     paid = Math.max(0, Math.floor(Number(paid)) || 0);
     total = Math.max(0, Math.floor(Number(total)) || 0);

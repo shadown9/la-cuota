@@ -669,12 +669,19 @@ function renderHome(){
     var sum=sumFor(gid, mk);
     var b=document.createElement('button');
     b.className='gitem';
+    /* Barra por segmentos: un tramo igual por miembro (los primeros N en
+       verde según cuántos pagaron). Sin estilos en línea: el CSP de la app
+       (style-src sin 'unsafe-inline') bloquea el atributo style, así que la
+       proporción se construye con N elementos iguales y puro CSS. */
     var bg=L.barGrow(sum.countPaid, sum.countTotal);
+    var segs='';
+    var nseg=bg.fill+bg.rest;
+    for(var si=0; si<nseg; si++) segs+='<span class="gseg'+(si<bg.fill?' on':'')+'"></span>';
     b.innerHTML='<span class="gdot">'+esc(initials(g.name))+'</span>'+
       '<span class="ginfo"><span class="gname">'+esc(g.name)+'</span>'+
       '<span class="gstat">'+sum.countPaid+' de '+sum.countTotal+' pagaron · '+
         (sum.missing>0 ? 'Faltan '+L.fmtMoney(sum.missing,g.currency) : 'Todos pagaron')+'</span>'+
-      '<span class="gbar"><span class="gfill" style="flex-grow:'+bg.fill+'"></span><span class="grest" style="flex-grow:'+bg.rest+'"></span></span></span>'+
+      '<span class="gbar">'+segs+'</span></span>'+
       '<span class="gchev">›</span>';
     b.addEventListener('click', function(){ openGroup(gid); });
     list.appendChild(b);
@@ -2060,7 +2067,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 112;
+var APP_V = 113;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
