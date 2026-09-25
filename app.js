@@ -521,6 +521,15 @@ function aplicarSesionGoogle(res){
      reclamar los grupos al subir y para traerlos solos al entrar. */
   S.googleSess = res.sess || '';
   S.expectNoSession = false;
+  /* Almacenar la sesión nueva: si hay grupos locales sin reclamar,
+     reclamarlos ahora (migración única). */
+  try{
+    if(S.googleSess && !localStorage.getItem('lacuota_claimedGroups') &&
+       Object.keys(S.groups || {}).length){
+      Object.keys(S.groups).forEach(function(gid){ reclamarGrupo(gid); });
+      localStorage.setItem('lacuota_claimedGroups', '1');
+    }
+  }catch(e){}
   S.googleTrialStart = res.trialStart || Date.now();
   /* El servidor es la autoridad de la prueba: alinear la fecha local con
      la del servidor (nunca extiende la prueba en el reingreso). */
@@ -2025,7 +2034,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 108;
+var APP_V = 109;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;
