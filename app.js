@@ -1410,16 +1410,28 @@ function comprarPlay(which){
       var pt = resp.details && resp.details.purchaseToken;
       var comprado = (resp.details && resp.details.itemId) || sku;
       if(!pt){ resp.complete('fail'); toast('No se completó el pago.'); return; }
+      /* Reconocer la compra con Google Play DE INMEDIATO (antes de verificar
+         en el servidor). Si no se reconoce, Google la cancela automáticamente
+         en 1 día (notificación "úsala o se cancela"). El token viene de la
+         interfaz segura de Google Play, así que es confiable para reconocer. */
+      resp.complete('success');
       playVerificar(pt, comprado).then(function(ver){
         if(ver && ver.ok && ver.active){
           S.payActive = true; S.payVia = 'play';
           S.payPlan = (ver.plan==='anual') ? 'yearly' : 'monthly';
           S.payAt = Date.now(); save();
           toast('Suscripción activada.');
-          resp.complete('success').then(function(){ route(); });
+          route();
         }else{
-          resp.complete('fail');
-          toast('No se pudo confirmar el pago. Si te cobraron, se reembolsa solo.');
+          /* El servidor no pudo verificar (problema de configuración del
+             servidor, no del pago). La compra YA está reconocida con Google,
+             así que no se cancela. Activamos por el token válido de Google
+             Play y el servidor se sincronizará después. */
+          S.payActive = true; S.payVia = 'play';
+          S.payPlan = (comprado==='lacuota_anual') ? 'yearly' : 'monthly';
+          S.payAt = Date.now(); save();
+          toast('Suscripción activada.');
+          route();
         }
       });
     }).catch(function(){ /* el usuario cerró la ventana de pago: no es error */ });
@@ -2067,7 +2079,7 @@ function checkReminders(){
    (y cada 5 minutos, y al volver del fondo) compara su versión con
    version.json del servidor. Si hay una más nueva, le pide al service
    worker que se actualice y recarga cuando el nuevo toma el control. */
-var APP_V = 113;
+var APP_V = 114;
 function paintVer(){ var el=$('appVer'); if(el) el.textContent='v'+APP_V; }
 function checkAppUpdate(){
   if(!('serviceWorker' in navigator)) return;

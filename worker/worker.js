@@ -407,7 +407,16 @@ async function playSubGet(env, purchaseToken, fetchFn) {
     PLAY_PKG + '/purchases/subscriptionsv2/tokens/' + encodeURIComponent(purchaseToken),
     { headers: { 'Authorization': 'Bearer ' + tok } });
   if (r.status === 404 || r.status === 400) return { ok: false, reason: 'token_invalido' };
-  if (!r.ok) return { ok: false, reason: 'google' };
+  if (!r.ok) {
+    /* Captura el código real de Google para diagnóstico (sin exponer
+       detalles sensibles al cliente). */
+    let gmsg = '';
+    try {
+      const gd = await r.json();
+      gmsg = (gd && gd.error && (gd.error.message || gd.error.status)) || '';
+    } catch (e) { /* noop */ }
+    return { ok: false, reason: 'google_' + r.status, gmsg: String(gmsg).slice(0, 120) };
+  }
   return { ok: true, data: await r.json() };
 }
 async function playSubAck(env, purchaseToken, fetchFn) {
@@ -772,7 +781,7 @@ export default {
       let pv;
       try { pv = await playSubGet(env, purchaseToken); }
       catch (e) { return j({ ok: false, reason: 'sin_servicio' }, 503); }
-      if (!pv.ok) return j({ ok: false, reason: pv.reason }, 400);
+      if (!pv.ok) return j({ ok: false, reason: pv.reason, detalle: pv.gmsg || undefined }, 400);
       const ev = playEvalSubscription(pv.data, productId);
       const key = 'playsub:' + await sha256Hex(googleSub);
       if (ev.pendingAck) { try { await playSubAck(env, purchaseToken); } catch (e) { /* noop */ } }
